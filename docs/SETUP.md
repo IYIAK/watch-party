@@ -65,18 +65,31 @@ runs in frames (`@noframes false` is *not* set; the frame reporter handles it).
 
 ## 3. Using it
 
-- A small floating button appears on the right edge. It's translucent until you
-  hover.
-- **Create room** → you become the host; a 6-character room code is shown.
-- A friend clicks **Join**, enters the code, and joins as a participant.
+- By default the page is left completely untouched — there is **no floating
+  button or icon** until you start a session.
+- Open the **Tampermonkey menu → "Open Watch Party"** to bring up the panel.
+- **Create room** → you become the host; a 6-character room code is shown. Once
+  you're in a room, the floating button appears (translucent until you hover)
+  and stays until you leave.
+- A friend opens the panel the same way, clicks **Join**, enters the code, and
+  joins as a participant.
+- Only one tab per browser actively syncs a room. Opening the room in another
+  tab takes over automatically; the previous tab drops to standby and shows an
+  **"在此标签同步"** button to reclaim it.
+- If your current page isn't the same video as the host, following is paused and
+  the panel shows a **"跳转到一起看的视频"** button — it pauses the current video
+  and opens the shared video in a new tab (which auto-activates).
 - By default everyone just *sees* each other's progress. Participants can opt in
   to:
   - **Auto-follow host progress** — seek to the host when drift > 5s.
   - **Follow host play/pause** — mirror the host's play/pause.
 - After you drag your own timeline, auto-follow is suspended for 8 seconds so
   you aren't yanked back immediately.
+- A background tab realigns to the host the moment you switch back to it.
 - The panel auto-collapses after ~10s unless **Pinned** mode is selected.
 - In fullscreen, all watch-party UI is hidden.
+- **Leave** (or the menu's "Leave room") removes all UI and returns the page to
+  its original clean state.
 
 ## 4. API reference
 

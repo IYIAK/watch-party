@@ -863,38 +863,67 @@
       document.documentElement.appendChild(style);
     }
 
-    const root = document.createElement("div");
-    root.id = "wp-root";
-    root.innerHTML = `
-      <div id="wp-pill"></div>
-      <div id="wp-panel">
-        <div id="wp-body"></div>
-        <div id="wp-notice"></div>
-      </div>
-      <button id="wp-fab" title="Watch Party">◐</button>
-    `;
-    document.body.appendChild(root);
-
-    const fab = root.querySelector("#wp-fab");
-    const panel = root.querySelector("#wp-panel");
-    const body = root.querySelector("#wp-body");
-    const notice = root.querySelector("#wp-notice");
-    const pill = root.querySelector("#wp-pill");
+    // DOM is created lazily: until the user has a room (or explicitly opens the
+    // panel), nothing is rendered on the page — not even the FAB. ensureMounted
+    // builds the UI on first need; unmount tears it back down to a clean page.
+    let root = null;
+    let fab = null;
+    let panel = null;
+    let body = null;
+    let notice = null;
+    let pill = null;
 
     let collapseTimer = null;
     let noticeTimer = null;
     let handlers = {};
 
+    function ensureMounted() {
+      if (root) return;
+      root = document.createElement("div");
+      root.id = "wp-root";
+      root.innerHTML = `
+        <div id="wp-pill"></div>
+        <div id="wp-panel">
+          <div id="wp-body"></div>
+          <div id="wp-notice"></div>
+        </div>
+        <button id="wp-fab" title="Watch Party">◐</button>
+      `;
+      document.body.appendChild(root);
+
+      fab = root.querySelector("#wp-fab");
+      panel = root.querySelector("#wp-panel");
+      body = root.querySelector("#wp-body");
+      notice = root.querySelector("#wp-notice");
+      pill = root.querySelector("#wp-pill");
+
+      fab.addEventListener("click", toggle);
+      root.addEventListener("mousemove", scheduleCollapse);
+      applyFullscreen();
+    }
+
+    function unmount() {
+      if (collapseTimer) clearTimeout(collapseTimer);
+      if (noticeTimer) clearTimeout(noticeTimer);
+      collapseTimer = noticeTimer = null;
+      if (root) root.remove();
+      root = fab = panel = body = notice = pill = null;
+    }
+
     function open() {
+      ensureMounted();
       panel.classList.add("open");
       render();
       scheduleCollapse();
     }
     function close() {
-      panel.classList.remove("open");
+      if (panel) panel.classList.remove("open");
+      // When closed with no room, return the page to a fully clean state.
+      if (!roomStore.inRoom()) unmount();
     }
     function toggle() {
-      panel.classList.contains("open") ? close() : open();
+      if (panel && panel.classList.contains("open")) close();
+      else open();
     }
     function scheduleCollapse() {
       if (collapseTimer) clearTimeout(collapseTimer);
@@ -902,8 +931,14 @@
       collapseTimer = setTimeout(close, CONFIG.panelAutoCollapseMs);
     }
 
-    fab.addEventListener("click", toggle);
-    root.addEventListener("mousemove", scheduleCollapse);
+    // Fullscreen: hide the whole UI while a video is fullscreen.
+    function applyFullscreen() {
+      if (!root) return;
+      const fs = document.fullscreenElement || document.webkitFullscreenElement;
+      root.style.display = fs ? "none" : "";
+    }
+    document.addEventListener("fullscreenchange", applyFullscreen);
+    document.addEventListener("webkitfullscreenchange", applyFullscreen);
 
     function fmt(sec) {
       sec = Math.max(0, Math.floor(sec || 0));
@@ -916,17 +951,20 @@
     }
 
     function setNotice(text, persist) {
+      if (!notice) return;
       notice.textContent = text || "";
       if (noticeTimer) clearTimeout(noticeTimer);
-      if (text && !persist) noticeTimer = setTimeout(() => (notice.textContent = ""), 4000);
+      if (text && !persist) noticeTimer = setTimeout(() => notice && (notice.textContent = ""), 4000);
     }
 
     function setFabState(kind) {
+      if (!fab) return;
       fab.classList.toggle("in-room", kind === "in-room");
       fab.classList.toggle("error", kind === "error");
     }
 
     function updatePill(roomState) {
+      if (!pill) return;
       const mode = settings.get().displayMode;
       if (mode !== "pill" || !roomStore.inRoom()) {
         pill.classList.remove("show");
@@ -1051,21 +1089,31 @@
     }
 
     function render() {
+      if (!body) return;
       if (roomStore.inRoom()) renderInRoom(handlers.getRoomState());
       else renderIdle();
     }
 
     return {
+      // Register handlers without rendering anything (page stays clean).
       mount(h) {
         handlers = h;
-        render();
       },
-      render,
+      // Show the panel because the user is in a room (FAB visible, panel open).
+      showForRoom() {
+        ensureMounted();
+        setFabState("in-room");
+        open();
+      },
+      // Open the create/join panel on demand (e.g. from the userscript menu).
       open,
       close,
+      render,
+      unmount,
       setNotice,
       setFabState,
       onRoomUpdate(roomState) {
+        if (!root) return; // nothing mounted -> nothing to update
         setFabState(roomStore.inRoom() ? "in-room" : "idle");
         if (panel.classList.contains("open")) render();
         updatePill(roomState);
@@ -1078,20 +1126,6 @@
       /[&<>"']/g,
       (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
     );
-  }
-
-  // ===========================================================================
-  // Fullscreen behavior: hide all UI in fullscreen.
-  // ===========================================================================
-  function watchFullscreen() {
-    const root = document.getElementById("wp-root");
-    function apply() {
-      const fs = document.fullscreenElement || document.webkitFullscreenElement;
-      if (root) root.style.display = fs ? "none" : "";
-    }
-    document.addEventListener("fullscreenchange", apply);
-    document.addEventListener("webkitfullscreenchange", apply);
-    apply();
   }
 
   // ===========================================================================
@@ -1141,8 +1175,7 @@
         });
         syncEngine.activate();
         panelUi.setNotice("");
-        panelUi.render();
-        panelUi.setFabState("in-room");
+        panelUi.showForRoom();
       } catch (err) {
         panelUi.setNotice(noticeForError(err.message));
       }
@@ -1154,8 +1187,7 @@
         roomStore.save({ roomId: res.roomId, participantId: res.participantId, role: "participant" });
         syncEngine.activate();
         panelUi.setNotice("");
-        panelUi.render();
-        panelUi.setFabState("in-room");
+        panelUi.showForRoom();
       } catch (err) {
         panelUi.setNotice(err.status === 404 ? "Room not found" : noticeForError(err.message));
       }
@@ -1163,8 +1195,8 @@
     leave() {
       syncEngine.stop();
       roomStore.clear();
-      panelUi.render();
-      panelUi.setFabState("idle");
+      // Leaving returns the page to a fully clean state (no FAB, no panel).
+      panelUi.unmount();
     },
     jumpToHost() {
       syncEngine.jumpToHost();
@@ -1182,14 +1214,14 @@
     panelUi.render();
   };
 
-  watchFullscreen();
-
   // Resume an existing room across reloads / SPA navigations. A newly opened
   // tab auto-activates, claiming the cross-tab lock and yielding any previously
   // active tab to standby (1a "later claimer takes over"). This is also what
   // makes the "jump to shared video" new tab take over automatically.
+  // When not in a room, nothing is shown at all — the user opens the panel via
+  // the userscript menu command below.
   if (roomStore.inRoom()) {
-    panelUi.setFabState("in-room");
+    panelUi.showForRoom();
     syncEngine.activate();
   }
 
@@ -1198,8 +1230,7 @@
     GM_registerMenuCommand("Leave room", () => {
       syncEngine.stop();
       roomStore.clear();
-      panelUi.render();
-      panelUi.setFabState("idle");
+      panelUi.unmount();
     });
   }
 })();
