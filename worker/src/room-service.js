@@ -11,7 +11,8 @@ const LIMITS = Object.freeze({
   title: 160,
   url: 800,
   source: 800,
-  adapter: 80
+  adapter: 80,
+  videoKey: 200
 });
 
 export class HttpError extends Error {
@@ -239,7 +240,8 @@ function normalizePlaybackState(value) {
     url: normalizeOptionalString(value.url, "url", LIMITS.url),
     title: normalizeOptionalString(value.title, "title", LIMITS.title),
     source: normalizeOptionalString(value.source, "source", LIMITS.source),
-    adapter: normalizeOptionalString(value.adapter, "adapter", LIMITS.adapter)
+    adapter: normalizeOptionalString(value.adapter, "adapter", LIMITS.adapter),
+    videoKey: normalizeOptionalString(value.videoKey, "videoKey", LIMITS.videoKey)
   };
 }
 

@@ -56,6 +56,27 @@ test("joinRoom adds a participant whose state appears in getState", async () => 
   assert.equal(bob.state.currentTime, 42);
 });
 
+test("updateState accepts and echoes a videoKey on the state", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+  const guest = await service.joinRoom(host.roomId, { displayName: "Bob" });
+
+  await service.updateState(host.roomId, {
+    participantId: guest.participantId,
+    state: {
+      currentTime: 5,
+      duration: 100,
+      paused: true,
+      url: "https://www.bilibili.com/video/BV1xx411c7mD?spm_id_from=333",
+      videoKey: "bili:BV1xx411c7mD"
+    }
+  });
+
+  const state = await service.getState(host.roomId);
+  const bob = state.participants.find((p) => p.participantId === guest.participantId);
+  assert.equal(bob.state.videoKey, "bili:BV1xx411c7mD");
+});
+
 test("updateState rejects a host update with a wrong token", async () => {
   const { service } = makeService();
   const host = await service.createRoom({ displayName: "Alice" });

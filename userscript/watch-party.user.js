@@ -178,6 +178,178 @@
   })();
 
   // ===========================================================================
+  // Module: videoIdentity
+  // Decides whether two participants are watching the "same video", using URL
+  // normalization first and a duration+title fingerprint as a fallback.
+  // computeVideoKey returns either a stable "real" key (e.g. bili:BV...) or a
+  // "feat:" fallback key when no reliable URL identity can be derived.
+  // ===========================================================================
+  const videoIdentity = (() => {
+    function biliKey(href) {
+      const bv = href.match(/BV[0-9A-Za-z]+/);
+      if (bv) {
+        const part = href.match(/[?&]p=(\d+)/);
+        return `bili:${bv[0]}${part ? "#p" + part[1] : ""}`;
+      }
+      const ep = href.match(/\/play\/(ep\d+)/) || href.match(/[?&](?:ep_id|epid)=(\d+)/);
+      if (ep) return `bili:ep${String(ep[1]).replace(/^ep/, "")}`;
+      const ss = href.match(/\/play\/(ss\d+)/);
+      if (ss) return `bili:${ss[1]}`;
+      return "";
+    }
+
+    // Normalize host+pathname for generic sites (drop query/hash + trailing /).
+    // Returns "" for hostless URLs (about:blank, blob:, file:) so callers fall
+    // back to the duration+title fingerprint instead of a meaningless key.
+    function genericKey(href) {
+      try {
+        const u = new URL(href);
+        if (!u.hostname) return "";
+        const path = u.pathname.replace(/\/+$/, "");
+        return `url:${u.hostname}${path}`;
+      } catch {
+        return "";
+      }
+    }
+
+    function featKey(state) {
+      const dur = state && Number.isFinite(state.duration) ? Math.round(state.duration) : 0;
+      const title = (state && state.title ? state.title : "").slice(0, 40);
+      if (!dur && !title) return "";
+      return `feat:${dur}:${title}`;
+    }
+
+    function computeVideoKey(href, state) {
+      const h = String(href || "");
+      let key = "";
+      if (/bilibili\.com/.test(h)) key = biliKey(h);
+      if (!key) key = genericKey(h);
+      if (!key) key = featKey(state);
+      return key;
+    }
+
+    function isFeatKey(key) {
+      return typeof key === "string" && key.startsWith("feat:");
+    }
+
+    // Compare local vs host. Returns true when we believe it's the same video,
+    // and intentionally errs toward true when host info is insufficient so we
+    // never wrongly stop following.
+    function isSameVideo(localState, hostState) {
+      if (!hostState) return true;
+      const localKey = localState && localState.videoKey;
+      const hostKey = hostState.videoKey;
+      if (!hostKey) return true; // host gave us nothing to compare against
+
+      if (localKey && hostKey && !isFeatKey(localKey) && !isFeatKey(hostKey)) {
+        return localKey === hostKey;
+      }
+
+      // Fallback: duration (±2s) + exact title.
+      const ld = localState && Number.isFinite(localState.duration) ? localState.duration : null;
+      const hd = Number.isFinite(hostState.duration) ? hostState.duration : null;
+      if (ld == null || hd == null) return true;
+      const sameDur = Math.abs(ld - hd) <= 2;
+      const sameTitle = (localState.title || "") === (hostState.title || "");
+      return sameDur && sameTitle;
+    }
+
+    return { computeVideoKey, isSameVideo, isFeatKey };
+  })();
+
+  // ===========================================================================
+  // Module: tabLock
+  // Ensures only one tab in this browser is the "active" syncing tab for a room.
+  // Uses BroadcastChannel (falls back to localStorage storage events). The
+  // newest tab to claim wins (1a "later claimer takes over"); the previous
+  // active tab yields to standby. participantId is shared across tabs (2a).
+  // ===========================================================================
+  const tabLock = (() => {
+    const CHANNEL = "watch-party-lock-v1";
+    const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    let mode = "standby"; // "active" | "standby"
+    let onYield = () => {};
+    let onPeerReleased = () => {};
+
+    const channel = (() => {
+      if (typeof BroadcastChannel === "function") {
+        try {
+          return new BroadcastChannel(CHANNEL);
+        } catch {
+          /* fall through to localStorage */
+        }
+      }
+      return null;
+    })();
+
+    function post(msg) {
+      const payload = { ...msg, tabId };
+      if (channel) {
+        try {
+          channel.postMessage(payload);
+          return;
+        } catch {
+          /* fall through */
+        }
+      }
+      try {
+        // storage event fires in *other* tabs; include a nonce so repeated
+        // identical messages still trigger.
+        localStorage.setItem(CHANNEL, JSON.stringify({ ...payload, n: Math.random() }));
+      } catch {
+        /* ignore */
+      }
+    }
+
+    function handle(msg) {
+      if (!msg || msg.tabId === tabId) return;
+      if (msg.type === "claim" && mode === "active") {
+        mode = "standby";
+        onYield();
+      } else if (msg.type === "release") {
+        onPeerReleased();
+      }
+    }
+
+    if (channel) {
+      channel.addEventListener("message", (ev) => handle(ev.data));
+    } else {
+      window.addEventListener("storage", (ev) => {
+        if (ev.key !== CHANNEL || !ev.newValue) return;
+        try {
+          handle(JSON.parse(ev.newValue));
+        } catch {
+          /* ignore */
+        }
+      });
+    }
+
+    window.addEventListener("pagehide", () => {
+      if (mode === "active") post({ type: "release" });
+    });
+
+    return {
+      isActive: () => mode === "active",
+      claim() {
+        mode = "active";
+        post({ type: "claim" });
+      },
+      yieldActive() {
+        if (mode === "active") {
+          mode = "standby";
+          post({ type: "release" });
+        }
+      },
+      set onYield(fn) {
+        onYield = fn;
+      },
+      set onPeerReleased(fn) {
+        onPeerReleased = fn;
+      }
+    };
+  })();
+
+  // ===========================================================================
   // Module: videoAdapters
   // Each adapter exposes: detect, getState, seek, play, pause, onChange, name.
   // ===========================================================================
@@ -440,12 +612,17 @@
     let lastManualSeekAt = 0;
     let lastRoomState = null;
     let lastReportSig = "";
+    let mismatchHost = null; // host state when local video differs, else null
     let onUpdate = () => {};
     let onError = () => {};
+    let onMismatch = () => {};
+    let visibilityHandler = null;
 
     function localState() {
       adapter.detect();
-      return adapter.getState();
+      const state = adapter.getState();
+      if (state) state.videoKey = videoIdentity.computeVideoKey(location.href, state);
+      return state;
     }
 
     function watchManualSeeks() {
@@ -518,6 +695,20 @@
       const local = localState();
       if (!local) return;
 
+      // Same-video gate: if the local video differs from the host's, do not
+      // follow at all (neither progress nor play/pause). Surface a mismatch so
+      // the panel can offer a "jump to the shared video" button.
+      if (!videoIdentity.isSameVideo(local, host.state)) {
+        if (!mismatchHost || mismatchHost.url !== host.state.url) {
+          mismatchHost = host.state;
+          onMismatch(host.state);
+        } else {
+          mismatchHost = host.state;
+        }
+        return;
+      }
+      mismatchHost = null;
+
       // Follow play/pause.
       if (cfg.followPlayPause && typeof host.state.paused === "boolean") {
         if (host.state.paused && !local.paused) adapter.pause();
@@ -538,6 +729,15 @@
       watchManualSeeks();
       reportTimer = setInterval(() => reportNow().catch(() => {}), CONFIG.reportIntervalMs);
       fetchTimer = setInterval(() => fetchNow().catch(() => {}), CONFIG.fetchIntervalMs);
+      // Background tabs throttle timers heavily; realign the moment we come back
+      // to the foreground. fetchNow -> applyFollow reuses driftThresholdSec, so
+      // small drift won't cause a visible jump.
+      visibilityHandler = () => {
+        if (document.visibilityState === "visible" && tabLock.isActive()) {
+          fetchNow().catch(() => {});
+        }
+      };
+      document.addEventListener("visibilitychange", visibilityHandler);
       reportNow().catch(() => {});
       fetchNow().catch(() => {});
     }
@@ -546,14 +746,43 @@
       if (reportTimer) clearInterval(reportTimer);
       if (fetchTimer) clearInterval(fetchTimer);
       reportTimer = fetchTimer = null;
+      if (visibilityHandler) {
+        document.removeEventListener("visibilitychange", visibilityHandler);
+        visibilityHandler = null;
+      }
     }
+
+    // Become the active syncing tab (claims the cross-tab lock, evicting any
+    // other active tab), then start reporting/following.
+    function activate() {
+      tabLock.claim();
+      start();
+    }
+
+    // Stop reporting/following but keep room membership so the tab can be
+    // re-activated later. Triggered when another tab claims the lock.
+    function deactivate() {
+      stop();
+    }
+
+    tabLock.onYield = () => {
+      deactivate();
+      onUpdate(lastRoomState);
+    };
 
     return {
       start,
       stop,
+      activate,
+      deactivate,
+      isActive: () => tabLock.isActive(),
       reportNow,
       fetchNow,
       markManualSeek,
+      pauseLocal() {
+        adapter.pause();
+      },
+      getMismatchHost: () => mismatchHost,
       jumpToHost() {
         const host = hostEntry(lastRoomState);
         if (host && host.state && typeof host.state.currentTime === "number") {
@@ -569,6 +798,9 @@
       },
       set onError(fn) {
         onError = fn;
+      },
+      set onMismatch(fn) {
+        onMismatch = fn;
       }
     };
   })();
@@ -607,8 +839,16 @@
       .wp-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
       .wp-dot.fresh { background: #1f9e57; } .wp-dot.stale { background: #7a7f8a; }
       .wp-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wp-name.wp-mismatch { color: #ff8a5c; }
+      .wp-mismatch-tag { color: #ff8a5c; font-size: 10px; }
       .wp-time { color: #9aa3b2; font-variant-numeric: tabular-nums; }
       .wp-host-tag { color: #ffcf5c; font-size: 10px; }
+      #wp-standby { background: rgba(43,108,255,.12); border: 1px solid #2b6cff;
+        border-radius: 8px; padding: 8px; margin: 4px 0 8px; font-size: 12px; color: #c8cdd6; }
+      #wp-standby button { margin-top: 6px; width: 100%; }
+      #wp-mismatch-bar { background: rgba(255,138,92,.12); border: 1px solid #ff8a5c;
+        border-radius: 8px; padding: 8px; margin: 6px 0; font-size: 12px; color: #ffb89c; }
+      #wp-mismatch-bar button { margin-top: 6px; width: 100%; background: #ff8a5c; color: #2a1810; }
       #wp-notice { margin-top: 8px; font-size: 11px; color: #ffb454; min-height: 14px; }
       .wp-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #c8cdd6; }
       #wp-pill { position: absolute; right: 0; bottom: 48px; background: rgba(24,26,32,.9);
@@ -724,7 +964,14 @@
       const room = roomStore.get();
       const cfg = settings.get();
       const detected = handlers.isVideoDetected();
+      const active = handlers.isActive();
       const participants = (roomState && roomState.participants) || [];
+      const hostKey = (() => {
+        const h =
+          participants.find((p) => p.participantId === (roomState && roomState.hostParticipantId)) ||
+          participants.find((p) => p.role === "host");
+        return h && h.state ? h.state.videoKey : null;
+      })();
 
       const list = participants
         .map((p) => {
@@ -732,22 +979,38 @@
           const fresh = age < CONFIG.participantStaleMs;
           const st = p.state || {};
           const playing = st.paused === false ? "▶" : "⏸";
+          const mismatch =
+            p.role !== "host" && hostKey && st.videoKey && st.videoKey !== hostKey;
           return `<div class="wp-p">
             <span class="wp-dot ${fresh ? "fresh" : "stale"}"></span>
-            <span class="wp-name">${escapeHtml(p.displayName || "Friend")}${
+            <span class="wp-name${mismatch ? " wp-mismatch" : ""}">${escapeHtml(p.displayName || "Friend")}${
             p.role === "host" ? ' <span class="wp-host-tag">HOST</span>' : ""
-          }</span>
+          }${mismatch ? ' <span class="wp-mismatch-tag">不在同一视频</span>' : ""}</span>
             <span class="wp-time">${playing} ${fmt(st.currentTime)}</span>
           </div>`;
         })
         .join("");
+
+      const standbyBlock = active
+        ? ""
+        : `<div id="wp-standby">同步正在另一个标签进行。
+            <button class="action" id="wp-activate">在此标签同步</button></div>`;
+
+      const mismatchHost = handlers.getMismatchHost();
+      const mismatchBar =
+        active && mismatchHost && mismatchHost.url
+          ? `<div id="wp-mismatch-bar">你和大家不在同一个视频，已暂停跟随。
+              <button id="wp-goto">跳转到一起看的视频</button></div>`
+          : "";
 
       body.innerHTML = `
         <h4>Room <span id="wp-code">${escapeHtml(room.roomId)}</span>
           <button class="ghost" id="wp-copy" style="float:right">Copy</button></h4>
         <div class="row" style="color:#9aa3b2">${room.role === "host" ? "You are host" : "Participant"} ·
           ${detected ? "video detected" : "player not detected"}</div>
+        ${standbyBlock}
         <div id="wp-list">${list || '<div style="color:#7a7f8a">No participants yet</div>'}</div>
+        ${mismatchBar}
         <div class="row"><button class="ghost" id="wp-jump">Jump to host</button></div>
         <label class="wp-toggle row"><input type="checkbox" id="wp-follow-progress" ${
           cfg.autoFollowProgress ? "checked" : ""
@@ -764,6 +1027,10 @@
           <button class="ghost" id="wp-leave">Leave</button>
         </div>
       `;
+      const activateBtn = body.querySelector("#wp-activate");
+      if (activateBtn) activateBtn.addEventListener("click", () => handlers.activate());
+      const gotoBtn = body.querySelector("#wp-goto");
+      if (gotoBtn) gotoBtn.addEventListener("click", () => handlers.jumpToHostVideo());
       body.querySelector("#wp-copy").addEventListener("click", () => {
         navigator.clipboard && navigator.clipboard.writeText(room.roomId);
         setNotice("Room code copied");
@@ -844,6 +1111,24 @@
   panelUi.mount({
     isVideoDetected: () => syncEngine.detectVideo(),
     getRoomState: () => syncEngine.getRoomState(),
+    isActive: () => syncEngine.isActive(),
+    getMismatchHost: () => syncEngine.getMismatchHost(),
+    activate() {
+      syncEngine.activate();
+      panelUi.setNotice("已在此标签同步");
+      panelUi.render();
+      panelUi.setFabState("in-room");
+    },
+    jumpToHostVideo() {
+      const host = syncEngine.getMismatchHost();
+      if (!host || !host.url) return;
+      // Pause the current (unrelated) video so it doesn't keep playing, then
+      // open the shared video in a new tab. The new tab auto-activates on load
+      // (see resume block), claiming the lock and yielding this tab to standby.
+      syncEngine.pauseLocal();
+      window.open(host.url, "_blank");
+      panelUi.setNotice("已在新标签打开一起看的视频");
+    },
     async create() {
       try {
         const name = settings.get().displayName || "Friend";
@@ -854,7 +1139,7 @@
           role: "host",
           hostToken: res.hostToken
         });
-        syncEngine.start();
+        syncEngine.activate();
         panelUi.setNotice("");
         panelUi.render();
         panelUi.setFabState("in-room");
@@ -867,7 +1152,7 @@
         const name = settings.get().displayName || "Friend";
         const res = await apiClient.joinRoom(code, name);
         roomStore.save({ roomId: res.roomId, participantId: res.participantId, role: "participant" });
-        syncEngine.start();
+        syncEngine.activate();
         panelUi.setNotice("");
         panelUi.render();
         panelUi.setFabState("in-room");
@@ -892,13 +1177,20 @@
     panelUi.setNotice(noticeForError(kind));
     if (kind === "sync-unavailable") panelUi.setFabState("error");
   };
+  syncEngine.onMismatch = () => {
+    panelUi.setNotice("不在同一视频，已暂停跟随", true);
+    panelUi.render();
+  };
 
   watchFullscreen();
 
-  // Resume an existing room across reloads / SPA navigations.
+  // Resume an existing room across reloads / SPA navigations. A newly opened
+  // tab auto-activates, claiming the cross-tab lock and yielding any previously
+  // active tab to standby (1a "later claimer takes over"). This is also what
+  // makes the "jump to shared video" new tab take over automatically.
   if (roomStore.inRoom()) {
     panelUi.setFabState("in-room");
-    syncEngine.start();
+    syncEngine.activate();
   }
 
   if (typeof GM_registerMenuCommand === "function") {
