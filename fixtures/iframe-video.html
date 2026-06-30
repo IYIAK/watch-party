@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture: iframe video (agefans-like)</title>
+    <style>
+      body { font: 15px system-ui, sans-serif; margin: 24px; background: #111; color: #eee; }
+      iframe { width: 640px; height: 360px; border: 0; max-width: 100%; }
+      .note { color: #9aa3b2; }
+    </style>
+  </head>
+  <body>
+    <h1>Iframe video fixture (agefans-like)</h1>
+    <p class="note">
+      The outer page has no &lt;video&gt; of its own. The player lives in a
+      same-origin iframe. The iframe aggregator adapter should pick up the
+      inner video's state via postMessage and be able to control it.
+    </p>
+    <iframe src="./inner-frame.html" allow="autoplay"></iframe>
+  </body>
+</html>

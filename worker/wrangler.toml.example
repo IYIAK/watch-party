@@ -1,0 +1,8 @@
+name = "video-sync-watch-party"
+main = "src/index.js"
+compatibility_date = "2026-06-30"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "video_sync_watch_party"
+database_id = "replace-with-your-d1-database-id"

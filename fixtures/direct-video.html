@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Fixture: direct video</title>
+    <style>
+      body { font: 15px system-ui, sans-serif; margin: 24px; background: #111; color: #eee; }
+      video { width: 640px; max-width: 100%; background: #000; }
+      .ad { width: 30px; height: 20px; }
+      .note { color: #9aa3b2; }
+    </style>
+  </head>
+  <body>
+    <h1>Direct &lt;video&gt; fixture</h1>
+    <p class="note">
+      A normal page with one main video plus a tiny "ad" video. The generic
+      adapter should select the large visible main video, not the ad.
+    </p>
+
+    <!-- Tiny preview/ad video the adapter should ignore. -->
+    <video class="ad" muted loop>
+      <source src="data:video/mp4;base64," type="video/mp4" />
+    </video>
+
+    <!-- Main video. Uses a small generated sample if present, otherwise just
+         exposes the element so the adapter can detect it. -->
+    <video id="main" controls width="640" height="360">
+      <source
+        src="https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4"
+        type="video/mp4"
+      />
+    </video>
+
+    <p class="note">
+      Install the userscript and set <code>useLocalWorker = true</code> with a
+      running local Worker to exercise create/join/sync against this page.
+    </p>
+  </body>
+</html>
