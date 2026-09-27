@@ -1,9 +1,9 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
-// @namespace    https://github.com/video-sync/watch-party
-// @version      0.9.8
+// @namespace    https://github.com/IYIAK/watch-party
+// @version      0.9.9
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
-// @author       video-sync
+// @author       IYIAK
 // @match        *://*/*
 // @grant        GM_setValue
 // @grant        GM_getValue
