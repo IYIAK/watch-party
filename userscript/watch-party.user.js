@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.2
+// @version      0.10.3
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -384,15 +384,24 @@
     function measureTransports() {
       if (transportSettled || typeof GM_xmlhttpRequest !== "function") return;
       const url = workerBaseUrl() + `/rooms/${CONFIG.warmupRoomId}/state`;
-      const init = { method: "GET", headers: {} };
+      // Probe with the *exact shape of real traffic* — a JSON POST. A plain GET is
+      // not representative: a page's Content-Security-Policy or a blocking
+      // extension can let a simple GET through and still reject a preflighted POST,
+      // which would make this race pick a transport that then fails on every
+      // report. The room id cannot exist, so the 404 it gets costs nothing.
+      const init = {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}"
+      };
       const settle = (name, ms, ok) => {
         if (!ok || transportSettled) return;
         transportSettled = true;
         transport = name;
         try {
+          // Fact only: the other one may simply have been slower, not broken.
           console.info(
-            `[一起看] 通道测速：${name === "fetch" ? "fetch" : "GM_xmlhttpRequest"} 先通（${ms}ms），采用它` +
-              (name === "fetch" ? "（GM 通道在你这台机器上很慢）" : "")
+            `[一起看] 通道测速：${name === "fetch" ? "fetch" : "GM_xmlhttpRequest"} 先通（${ms}ms），采用它`
           );
         } catch {
           /* ignore */
@@ -460,13 +469,17 @@
           : "没有可用的请求通道";
         throw networkError(url, detail, silent);
       }
-      // A fallback is worth a line: it explains a sudden change in speed.
+      // A fallback is worth a line — with the *reason*, because "fetch failed" on
+      // its own says nothing about whether it was the page's CSP, a blocking
+      // extension or the network.
       if (used !== transport) {
         if (!silent) {
+          const name = (t) => (t === "gm" ? "GM_xmlhttpRequest" : "fetch");
+          const why = lastFail && lastFail.t === transport ? lastFail : null;
           warn(
-            `${transport === "gm" ? "GM_xmlhttpRequest" : "fetch"} 失败，本次改用 ${
-              used === "gm" ? "GM_xmlhttpRequest" : "fetch"
-            }`,
+            `${name(transport)} 失败（第 ${failStreak[transport]} 次${
+              why ? `，${why.ms}ms，${(why.err && why.err.name) || "Error"}: ${(why.err && why.err.message) || why.err}` : ""
+            }），本次改用 ${name(used)}`,
             url
           );
         }
