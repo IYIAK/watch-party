@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.3
+// @version      0.10.4
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -469,22 +469,26 @@
           : "没有可用的请求通道";
         throw networkError(url, detail, silent);
       }
-      // A fallback is worth a line — with the *reason*, because "fetch failed" on
-      // its own says nothing about whether it was the page's CSP, a blocking
-      // extension or the network.
-      if (used !== transport) {
+      // Only a *real* fallback is worth a line: the preferred transport of this very
+      // request failed and another one covered it. The preference can also move for
+      // reasons that have nothing to do with this request — the transport race
+      // settling late, or two earlier failures — and reporting that as "X failed"
+      // was simply wrong (it claimed a failure that never happened, and blamed the
+      // transport that actually worked).
+      if (lastFail && lastFail.t === transport && used !== transport) {
         if (!silent) {
           const name = (t) => (t === "gm" ? "GM_xmlhttpRequest" : "fetch");
-          const why = lastFail && lastFail.t === transport ? lastFail : null;
           warn(
-            `${name(transport)} 失败（第 ${failStreak[transport]} 次${
-              why ? `，${why.ms}ms，${(why.err && why.err.name) || "Error"}: ${(why.err && why.err.message) || why.err}` : ""
+            `${name(lastFail.t)} 失败（${lastFail.ms}ms，${(lastFail.err && lastFail.err.name) || "Error"}: ${
+              (lastFail.err && lastFail.err.message) || lastFail.err
             }），本次改用 ${name(used)}`,
             url
           );
         }
-        if (failStreak[transport] >= 2) transport = used;
       }
+      // Move the preference once a transport has failed twice in a row (this
+      // request may have been the second), so the next one starts on the winner.
+      if (used !== transport && failStreak[transport] >= 2) transport = used;
       // A slow request is the whole story behind "creating a room takes ten
       // seconds", and it is invisible otherwise: the request succeeds, just late.
       const elapsed = Date.now() - started;
