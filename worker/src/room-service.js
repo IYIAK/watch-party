@@ -12,7 +12,8 @@ const LIMITS = Object.freeze({
   url: 800,
   source: 800,
   adapter: 80,
-  videoKey: 200
+  videoKey: 200,
+  seekRequestId: 64
 });
 
 export class HttpError extends Error {
@@ -158,7 +159,11 @@ export function createRoomService(db, options = {}) {
     return {
       roomId: room.id,
       hostParticipantId: room.host_participant_id,
-      participants
+      participants,
+      // Server clock, same source as every participant's updatedAt. Clients
+      // subtract the two to learn how stale a report is without trusting their
+      // own clock, then extrapolate where the host is now.
+      serverTime: now()
     };
   }
 
@@ -216,13 +221,17 @@ function normalizeId(value, fieldName, maxLength) {
   return text;
 }
 
-function normalizeOptionalString(value, fieldName, maxLength) {
+function normalizeOptionalString(value, fieldName, maxLength, truncate) {
   if (value === undefined || value === null) return "";
   if (typeof value !== "string") {
     throw new HttpError(400, `${fieldName} must be a string`);
   }
   const text = value.trim();
   if (text.length > maxLength) {
+    // Descriptive fields (a long URL, a data: source, a signed video link) are
+    // better cut short than rejected: one overlong value must never stop a
+    // participant from reporting at all.
+    if (truncate) return text.slice(0, maxLength);
     throw new HttpError(400, `${fieldName} is too long`);
   }
   return text;
@@ -233,16 +242,51 @@ function normalizePlaybackState(value) {
     throw new HttpError(400, "state must be an object");
   }
 
-  return {
+  const state = {
     currentTime: normalizeFiniteNumber(value.currentTime, "currentTime", 0, 60 * 60 * 24),
     duration: normalizeFiniteNumber(value.duration, "duration", 0, 60 * 60 * 24),
     paused: Boolean(value.paused),
-    url: normalizeOptionalString(value.url, "url", LIMITS.url),
-    title: normalizeOptionalString(value.title, "title", LIMITS.title),
-    source: normalizeOptionalString(value.source, "source", LIMITS.source),
-    adapter: normalizeOptionalString(value.adapter, "adapter", LIMITS.adapter),
-    videoKey: normalizeOptionalString(value.videoKey, "videoKey", LIMITS.videoKey)
+    url: normalizeOptionalString(value.url, "url", LIMITS.url, true),
+    title: normalizeOptionalString(value.title, "title", LIMITS.title, true),
+    source: normalizeOptionalString(value.source, "source", LIMITS.source, true),
+    adapter: normalizeOptionalString(value.adapter, "adapter", LIMITS.adapter, true),
+    videoKey: normalizeOptionalString(value.videoKey, "videoKey", LIMITS.videoKey, true),
+    // Co-op flags: "my playback is stuck" and the host's "stop waiting for me".
+    buffering: Boolean(value.buffering),
+    skipWait: Boolean(value.skipWait),
+    // A member explicitly following the host across a *different* video page
+    // (same show, two sites). The room needs to know so their jump requests are
+    // still honoured and the panel can say why they are following.
+    forceSync: Boolean(value.forceSync)
   };
+
+  const hostJump = normalizeHostJump(value.hostJump);
+  if (hostJump) state.hostJump = hostJump;
+
+  const seekRequest = normalizeSeekRequest(value.seekRequest);
+  if (seekRequest) state.seekRequest = seekRequest;
+  return state;
+}
+
+// A one-shot "the host moved the timeline" marker. Members use the id to tell a
+// new jump from the same one being reported again, so the bubble shows once.
+function normalizeHostJump(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = normalizeOptionalString(value.id, "hostJump.id", LIMITS.seekRequestId);
+  if (!id || !/^[A-Za-z0-9_.-]+$/.test(id)) return null;
+  return { id };
+}
+
+// A member asking the host to jump the whole room to a position. A malformed
+// request is dropped rather than rejected: a stale client must never be able to
+// block that participant's normal position updates.
+function normalizeSeekRequest(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = normalizeOptionalString(value.id, "seekRequest.id", LIMITS.seekRequestId);
+  if (!id || !/^[A-Za-z0-9_.-]+$/.test(id)) return null;
+  const time = Number(value.time);
+  if (!Number.isFinite(time)) return null;
+  return { id, time: Math.min(60 * 60 * 24, Math.max(0, time)) };
 }
 
 function normalizeFiniteNumber(value, fieldName, min, max) {

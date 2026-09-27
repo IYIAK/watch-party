@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>一起看 · 面板预览</title>
+    <style>
+      body { margin: 0; font: 15px/1.6 -apple-system, system-ui, "PingFang SC",
+        "Microsoft YaHei", sans-serif; color: #1b2130; background: #f5f6f8; }
+      .page { max-width: 900px; margin: 0 auto; padding: 32px 28px 80px; }
+      h1 { font-size: 20px; font-weight: 650; margin: 0 0 4px; }
+      .sub { color: #6b7280; font-size: 13px; margin-bottom: 22px; }
+      .player { position: relative; width: 100%; aspect-ratio: 16/9; border-radius: 14px;
+        overflow: hidden; background: linear-gradient(135deg, #e9edf3, #d9e0ea);
+        border: 1px solid rgba(15,23,42,.08); box-shadow: 0 14px 40px rgba(15,23,42,.10); }
+      .player video { position: absolute; inset: 0; width: 100%; height: 100%; }
+      .badge { position: absolute; left: 14px; top: 14px; font-size: 11.5px;
+        padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.86);
+        border: 1px solid rgba(15,23,42,.10); color: #1b2130; backdrop-filter: blur(8px); }
+      .meta { margin-top: 14px; font-size: 13px; color: #6b7280; }
+      .meta b { color: #1b2130; font-weight: 600; }
+      .bar { margin-top: 8px; height: 4px; border-radius: 999px;
+        background: rgba(15,23,42,.08); overflow: hidden; }
+      .bar i { display: block; height: 100%; width: 17%; background: #2b6cff; }
+      .hint { margin-top: 46px; font-size: 12.5px; color: #8a93a3;
+        border-left: 2px solid rgba(43,108,255,.35); padding-left: 10px; }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>一起看 · 面板视觉预览</h1>
+      <div class="sub">页面本身是一个假的视频站点，右下角的面板由真实的 watch-party.user.js 渲染。</div>
+
+      <div class="player">
+        <video id="main" muted playsinline></video>
+        <div class="badge">▶ 预览中</div>
+      </div>
+      <div class="meta"><b>测试视频 · 第 1 集</b>　12:34 / 72:00</div>
+      <div class="bar"><i></i></div>
+
+      <div class="hint">
+        这里只桩掉了对 Worker 的网络请求（返回一份固定的房间数据），
+        没有绕过任何渲染代码——面板的结构、样式、文案都来自脚本本身。
+      </div>
+    </div>
+
+    <script>
+      // ---- 给适配器一个可见的主视频 ----
+      var main = document.getElementById("main");
+      Object.defineProperty(main, "duration", { get: function () { return 4320; } });
+      Object.defineProperty(main, "currentTime", { value: 121, writable: true });
+      Object.defineProperty(main, "paused", {
+        // Driven by a global so a harness can simulate a paused follower;
+        // undefined means "playing", which is what the visual preview wants.
+        get: function () { return Boolean(window.__wpPreviewPaused); }
+      });
+
+      // ---- 桩掉 Worker 请求 ----
+      var ROOM_STATE = {
+        roomId: "HT296M",
+        hostParticipantId: "p_host_demo_0001",
+        participants: [
+          {
+            participantId: "p_host_demo_0001",
+            displayName: "阿凯",
+            role: "host",
+            updatedAt: new Date().toISOString(),
+            state: {
+              currentTime: 121, duration: 4320, paused: false,
+              url: "https://www.bilibili.com/video/BV1xx411c7mD",
+              title: "测试视频 · 第 1 集",
+              adapter: "bilibili",
+              videoKey: "bili:BV1xx411c7mD"
+            }
+          },
+          {
+            participantId: "p_guest_demo_0002",
+            displayName: "小林",
+            role: "participant",
+            updatedAt: new Date().toISOString(),
+            state: {
+              currentTime: 118, duration: 4320, paused: false,
+              url: "https://www.bilibili.com/video/BV1xx411c7mD",
+              title: "测试视频 · 第 1 集",
+              adapter: "bilibili",
+              videoKey: "bili:BV1xx411c7mD"
+            }
+          },
+          {
+            participantId: "p_guest_demo_0003",
+            displayName: "大熊同学",
+            role: "participant",
+            updatedAt: new Date(Date.now() - 90000).toISOString(),
+            state: {
+              currentTime: 753, duration: 4320, paused: true,
+              url: "https://www.agedm.org/play/123",
+              title: "另一个视频",
+              adapter: "iframe-video",
+              videoKey: "url:www.agedm.org/play/123"
+            }
+          }
+        ]
+      };
+
+      var json = function (payload) {
+        return new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      };
+
+      var realFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        var url = typeof input === "string" ? input : input.url;
+        // 拦所有"后端"请求（脚本顶部那个地址），只放行本地静态资源。
+        // 这样夹具不依赖任何具体域名，换后端也不用改这里。
+        var isLocalAsset = url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1;
+        if (!isLocalAsset) {
+          var method = (init && init.method) || "GET";
+          if (method === "POST" && /\/rooms$/.test(url)) {
+            return Promise.resolve(
+              json({ roomId: "DEMO01", participantId: "p_host_demo_0001", role: "host", hostToken: "h_demo" })
+            );
+          }
+          if (method === "POST" && /\/join$/.test(url)) {
+            return Promise.resolve(json({ roomId: "DEMO01", participantId: "p_guest_demo_0002", role: "participant" }));
+          }
+          if (method === "POST") return Promise.resolve(json({ ok: true }));
+          return Promise.resolve(json(ROOM_STATE));
+        }
+        return realFetch(input, init);
+      };
+
+      // ---- 预置本地状态：房主 + 已勾选的选项 ----
+      // 用 ?idle=1 可以看「未进房间」时的创建/加入面板。
+      if (location.search.indexOf("idle") === -1) {
+        // ?participant=1 previews the follower side (host is someone else).
+        var asParticipant = location.search.indexOf("participant") !== -1;
+        // ?identity=N 让不同标签拿到不同参与者身份（复现"同一个房间两个身份"）
+        var idMatch = location.search.match(/identity=(\d+)/);
+        var identity = idMatch ? idMatch[1] : "1";
+        localStorage.setItem(
+          "watch-party-state-v1",
+          JSON.stringify(
+            asParticipant
+              ? { roomId: "HT296M", participantId: "p_guest_demo_000" + identity, role: "participant" }
+              : { roomId: "HT296M", participantId: "p_host_demo_000" + identity, role: "host", hostToken: "h_demo" }
+          )
+        );
+        // ?keepSettings=1 skips the settings write so the script's own defaults
+        // can be observed instead.
+        if (location.search.indexOf("keepSettings") === -1) {
+          localStorage.setItem(
+            "watch-party-settings-v1",
+            JSON.stringify({
+              autoFollowProgress: true,
+              followPlayPause: true,
+              displayMode: "pill",
+              displayName: asParticipant ? "小林" : "阿凯"
+            })
+          );
+        }
+      } else {
+        localStorage.removeItem("watch-party-state-v1");
+      }
+
+      // ---- 模拟油猴菜单（用于打开「未进房」面板） ----
+      window.GM_registerMenuCommand = function (name, cb) {
+        window.__wpMenu = window.__wpMenu || {};
+        window.__wpMenu[name] = cb;
+      };
+
+      // ?gmshim=1 模拟 Tampermonkey 的跨标签共享存储（GM_setValue +
+      // GM_addValueChangeListener）。真实 TM 里这套存储**不分来源**，所以
+      // 不同站点的标签页也能互相协调；这里用 localStorage + storage 事件
+      // 模拟同一来源下的等价行为（storage 事件只在"其它标签"触发，和 TM 的
+      // remote 标志语义一致）。
+      if (location.search.indexOf("gmshim") !== -1) {
+        window.__gmWrites = 0;
+        window.GM_getValue = function (k, d) {
+          var v = localStorage.getItem(k);
+          return v === null ? d : v;
+        };
+        window.GM_setValue = function (k, v) {
+          window.__gmWrites++;
+          localStorage.setItem(k, v);
+        };
+        window.GM_deleteValue = function (k) {
+          localStorage.removeItem(k);
+        };
+        window.GM_addValueChangeListener = function (k, cb) {
+          window.addEventListener("storage", function (ev) {
+            if (ev.key !== k) return;
+            cb(k, ev.oldValue, ev.newValue, true);
+          });
+        };
+        // 也模拟 GM_xmlhttpRequest（转成 fetch），用来验证脚本走的是这条通道。
+        // ?gmfail=1 让它像"被油猴拒绝"那样失败，用来验证自动回退到 fetch。
+        // ?gmslow=N 让它像"扩展网络上下文卡在死 IP 上"那样慢 N 毫秒，用来验证
+        // 通道测速会淘汰掉它、改用 fetch。
+        window.__gmXhrCalls = 0;
+        var gmSlow = (location.search.match(/gmslow=(\d+)/) || [])[1];
+        window.GM_xmlhttpRequest = function (opts) {
+          window.__gmXhrCalls++;
+          if (location.search.indexOf("gmfail") !== -1) {
+            setTimeout(function () { (opts.onerror || function () {})(); }, 10);
+            return;
+          }
+          fetch(opts.url, { method: opts.method, headers: opts.headers, body: opts.data })
+            .then(function (r) {
+              return r.text().then(function (t) {
+                var fire = function () {
+                  (opts.onload || function () {})({ status: r.status, responseText: t });
+                };
+                if (gmSlow) setTimeout(fire, Number(gmSlow));
+                else fire();
+              });
+            })
+            .catch(function (e) {
+              (opts.onerror || function () {})(e);
+            });
+        };
+      }
+
+      // ---- 注入真实的油猴脚本 ----
+      fetch("/userscript/watch-party.user.js")
+        .then(function (r) { return r.text(); })
+        .then(function (src) {
+          (0, eval)(src);
+          // 等价于点油猴菜单里的「打开一起看」，未进房时也想看看面板。
+          if (window.__wpMenu && window.__wpMenu["打开一起看"]) window.__wpMenu["打开一起看"]();
+        })
+        .catch(function (e) { console.error("加载脚本失败", e); });
+    </script>
+  </body>
+</html>

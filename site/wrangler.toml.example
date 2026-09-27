@@ -1,0 +1,25 @@
+# Static install site. No API logic here at all — just the generated page and the
+# userscript itself, so people can install in one click from a URL you control.
+#
+# Setup:   cp wrangler.toml.example wrangler.toml   # then put your own domain in
+#          cp config.example.json config.json       # then put your own API host in
+# Deploy:  npm run site:deploy
+#
+# Static asset requests are free (they never invoke a Worker script), so this
+# does not eat into the API Worker's daily request quota.
+name = "watch-party-guide"
+compatibility_date = "2026-06-30"
+
+# Top-level keys must come before any [table] header in TOML — placing this
+# after [assets] silently files it under assets and the routes are dropped.
+#
+# `wrangler deploy` creates the DNS record and certificate when the zone lives in
+# the same Cloudflare account.
+routes = [
+  { pattern = "watch-party-guide.example.com", custom_domain = true }
+]
+
+[assets]
+directory = "./public"
+# Any unknown path renders the guide rather than a bare 404.
+not_found_handling = "single-page-application"

@@ -1,8 +1,16 @@
-name = "video-sync-watch-party"
+name = "watch-party"
 main = "src/index.js"
 compatibility_date = "2026-06-30"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "video_sync_watch_party"
+database_name = "watch_party"
 database_id = "replace-with-your-d1-database-id"
+
+# Optional: serve the API from your own domain instead of *.workers.dev (faster
+# and reachable where workers.dev is DNS-poisoned). The zone must already be in
+# this Cloudflare account; `wrangler deploy` then creates the DNS record and the
+# certificate automatically.
+# routes = [
+#   { pattern = "api.example.com", custom_domain = true }
+# ]
