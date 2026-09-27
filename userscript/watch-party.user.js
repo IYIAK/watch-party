@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.0
+// @version      0.10.1
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -734,23 +734,28 @@
         return true;
       },
       // Another tab changed the record (any origin, when the manager provides the
-      // shared storage channel).
+      // shared storage channel). Deliberately *not* filtered on the `remote` flag:
+      // that flag is a manager implementation detail, and dropping the event when a
+      // manager reports remote=false for a cross-origin write silently breaks the
+      // stand-down (two tabs then keep syncing). Our own write can arrive here too;
+      // the handler re-reads the record, so it is a no-op.
       onChange(fn) {
         onChanged = fn;
         if (typeof GM_addValueChangeListener === "function") {
           try {
-            GM_addValueChangeListener(KEY, (_name, _old, _value, remote) => {
-              if (remote) onChanged();
+            GM_addValueChangeListener(KEY, (_name, _old, value, remote) => {
+              if (!value) return;
+              onChanged({ via: "gm", remote: Boolean(remote) });
             });
           } catch {
             /* ignore */
           }
         }
         // Fallback for managers without the shared storage channel: same-origin
-        // tabs still coordinate, cross-origin ones do not (same limitation as the
-        // old lock, and the reason the GM path is preferred).
+        // tabs still coordinate, cross-origin ones do not (which is why the GM
+        // path is preferred).
         window.addEventListener("storage", (ev) => {
-          if (ev.key === KEY) onChanged();
+          if (ev.key === KEY) onChanged({ via: "storage" });
         });
       },
       // True when the recorded owner has not checked in for a long time. Used
@@ -1178,11 +1183,10 @@
       const room = roomStore.get();
       if (!room) return;
       // Only the tab the user picked may write to the room. `running` already
-      // covers this, but a cross-tab stand-down message can arrive a moment late;
-      // this second check makes it impossible for two tabs to report at once, and
-      // that is what keeps the room's video (and so the "different video"
-      // indicator) from flapping between tabs.
-      if (!running || !syncOwner.isOwner(room.roomId)) return;
+      // covers this, but a stand-down notice can be missed; re-reading the shared
+      // record makes it impossible for two tabs to report at once, which is what
+      // keeps the room's video from flapping between them.
+      if (!ownsSync(room)) return;
       const state = localState();
       if (!state) return;
       // Co-op fields ride along with the normal report.
@@ -1258,6 +1262,9 @@
       if (fetchInFlight) return;
       const room = roomStore.get();
       if (!room) return;
+      // Re-check who owns sync before doing anything else: if another tab took
+      // over, this poll is what stands us down even when the notice was lost.
+      reconcileOwnership(room);
       fetchInFlight = true;
       const seq = ++fetchSeq;
       try {
@@ -1387,7 +1394,7 @@
       // A tab that is not the syncing one still computes the verdict above — that
       // is how its panel shows the warning and the jump button — but it must
       // never move its player: the user picked a different tab to be in charge.
-      if (!running) return;
+      if (!ownsSync(room)) return;
       // A different video normally means "do not follow at all" — unless the
       // member pressed 强制同步, i.e. declared that the two pages are the same
       // video and the timeline should be followed anyway.
@@ -1745,18 +1752,46 @@
       }
     }
 
+    // The single invariant of the cross-tab design: only the tab that owns sync may
+    // report or move its player. `running` says "this tab was told to sync", the
+    // shared record says "it is still this tab's job" — both must hold.
+    function ownsSync(room) {
+      const r = room || roomStore.get();
+      return Boolean(r) && running && syncOwner.isOwner(r.roomId);
+    }
+
+    // A stand-down notice can be missed (manager quirks, a suspended timer), so the
+    // record is also re-read locally on every poll: this makes the invariant hold
+    // within one poll even if the notification never arrives.
+    function reconcileOwnership(room) {
+      if (!running) return true;
+      if (syncOwner.isOwner(room.roomId)) return true;
+      releaseReporting("同步已由另一个标签接管（本地复核发现）");
+      return false;
+    }
+
     // Somebody else took the job (possibly a tab on another site, which is the
     // only reason this needs to travel through the manager's shared storage).
     // Stand down and keep showing the room.
-    syncOwner.onChange(() => {
+    syncOwner.onChange((info) => {
       const room = roomStore.get();
-      if (!room || syncOwner.isOwner(room.roomId)) return;
-      if (running) {
-        deactivate();
-        startPassivePoll();
+      if (!room) return;
+      if (!syncOwner.isOwner(room.roomId)) {
+        releaseReporting("另一个标签接管（" + ((info && info.via) || "通知") + "）");
+        return;
       }
       onUpdate(lastRoomState);
     });
+
+    // Stop reporting, keep showing the room. Shared by the notification path and
+    // the local re-check above.
+    function releaseReporting(why) {
+      if (!running) return;
+      console.info(`[一起看] ${why}：本标签让出同步`);
+      deactivate();
+      startPassivePoll();
+      onUpdate(lastRoomState);
+    }
 
     // Restored from the back/forward cache: re-read who owns sync instead of
     // assuming it is still us (another tab may have taken over while this page
