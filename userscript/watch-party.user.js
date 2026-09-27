@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.6
+// @version      0.10.7
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -2871,18 +2871,22 @@
             <button class="action" id="wp-activate">同步当前视频</button></div>`;
 
       const mismatchHost = handlers.getMismatchHost();
-      // Two states: a warning that following is paused, or — once the member
-      // declared the pages to be the same video — a note that it is following
-      // across different pages.
-      const mismatchBar =
-        active && mismatchHost && mismatchHost.url
-          ? cfg.forceSync
+      // The warning (and the jump button inside it) matters most exactly when this
+      // tab is NOT the syncing one — right after joining, say: jumping opens the
+      // shared video in a new tab and hands the job to it. Only the wording has to
+      // differ, because a tab that was never following has not "paused following".
+      const differentVideo = Boolean(mismatchHost && mismatchHost.url);
+      const mismatchBar = !differentVideo
+        ? ""
+        : !active
+          ? `<div id="wp-mismatch-bar">你和大家不在同一个视频。
+              <button id="wp-goto">跳转到一起看的视频</button></div>`
+          : cfg.forceSync
             ? `<div id="wp-mismatch-bar" class="info">已强制同步：你和房主不在同一页面，进度仍会跟随。
                 <button class="ghost" id="wp-unforce">取消强制同步</button></div>`
             : `<div id="wp-mismatch-bar">你和大家不在同一个视频，已暂停跟随。
                 <button id="wp-goto">跳转到一起看的视频</button>
-                <button class="ghost" id="wp-force">强制同步</button></div>`
-          : "";
+                <button class="ghost" id="wp-force">强制同步</button></div>`;
 
       // Host only: somebody dragged their bar and wants the room to follow.
       const seekReq = handlers.getSeekRequest();
