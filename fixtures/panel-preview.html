@@ -118,16 +118,29 @@
           /^https?:\/\//i.test(url) && url.indexOf("127.0.0.1") === -1 && url.indexOf("localhost") === -1;
         if (isBackend) {
           var method = (init && init.method) || "GET";
+          // ?raceslow=N 让"通道测速"那个探测请求慢 N 毫秒，用来验证"第一批真实请求
+          // 会先等测速结果"（生产环境里测速本来就要几百毫秒）。
+          var raceDelay = (location.search.match(/raceslow=(\d+)/) || [])[1];
+          var answer = function (payload) {
+            if (raceDelay && url.indexOf("WARMUP") !== -1) {
+              return new Promise(function (res) {
+                setTimeout(function () { res(payload()); }, Number(raceDelay));
+              });
+            }
+            return Promise.resolve(payload());
+          };
           if (method === "POST" && /\/rooms$/.test(url)) {
-            return Promise.resolve(
-              json({ roomId: "DEMO01", participantId: "p_host_demo_0001", role: "host", hostToken: "h_demo" })
-            );
+            return answer(function () {
+              return json({ roomId: "DEMO01", participantId: "p_host_demo_0001", role: "host", hostToken: "h_demo" });
+            });
           }
           if (method === "POST" && /\/join$/.test(url)) {
-            return Promise.resolve(json({ roomId: "DEMO01", participantId: "p_guest_demo_0002", role: "participant" }));
+            return answer(function () {
+              return json({ roomId: "DEMO01", participantId: "p_guest_demo_0002", role: "participant" });
+            });
           }
-          if (method === "POST") return Promise.resolve(json({ ok: true }));
-          return Promise.resolve(json(ROOM_STATE));
+          if (method === "POST") return answer(function () { return json({ ok: true }); });
+          return answer(function () { return json(ROOM_STATE); });
         }
         return realFetch(input, init);
       };

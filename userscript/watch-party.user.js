@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.4
+// @version      0.10.5
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -66,6 +66,10 @@
     // its tab id (see syncOwner.confirmTabIdentity). A same-origin broadcast round
     // trip is ~1ms; this only has to cover a busy tab.
     tabProbeMs: 120,
+    // How long the first real request waits for the transport race to settle.
+    // Bounded on purpose: the winner is whichever answers first, so this is only
+    // ever as slow as the faster of the two probes.
+    transportWaitMs: 1500,
     // One-shot handoff for 「跳转到一起看的视频」: the tab we open for the shared
     // video is the one the user meant, so it may take over. A plain new tab never
     // matches it and stays passive.
@@ -380,6 +384,27 @@
     // Consecutive failures per transport. The preference only moves after two in
     // a row, so a single flaky request cannot cost us the fast path.
     const failStreak = { gm: 0, fetch: 0 };
+    // Callers waiting for the race to pick a transport (see transportReady).
+    let settleWaiters = [];
+
+    // Resolves once the race has chosen, or after `capMs` — whichever comes first.
+    // Without this the first requests of a page went out on the default transport,
+    // and when the manager's stack is slow (seconds per request) that made creating
+    // or joining a room feel broken. The cap means a dead probe can never hold a
+    // request up.
+    function transportReady(capMs) {
+      if (transportSettled) return Promise.resolve();
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          resolve();
+        };
+        settleWaiters.push(finish);
+        setTimeout(finish, capMs);
+      });
+    }
 
     function measureTransports() {
       if (transportSettled || typeof GM_xmlhttpRequest !== "function") return;
@@ -406,6 +431,9 @@
         } catch {
           /* ignore */
         }
+        // Let any request that is waiting for this decision go ahead.
+        for (const wake of settleWaiters) wake();
+        settleWaiters = [];
       };
       const a = Date.now();
       gmRequest(url, init).then(
@@ -428,6 +456,12 @@
         init.headers["Content-Type"] = "application/json";
         init.body = JSON.stringify(body);
       }
+      // Give the race a moment to pick a transport before the first real request
+      // goes out. Without this the first requests of a page ran on the default
+      // (the manager's stack), and when that is slow — seconds per request on some
+      // setups — creating or joining a room felt broken even though the fast path
+      // was available. Bounded, so a dead probe cannot hold the request up.
+      await transportReady(CONFIG.transportWaitMs);
       // Try the chosen transport first, then the other one. Between them one
       // works on essentially any site: `fetch` rides the page's own (fast, warm)
       // connection pool but is governed by the site's `connect-src` CSP, while
