@@ -29,17 +29,17 @@ function toastFor(input) {
       actions: input.isHost ? ["accept", "ignore"] : []
     });
   }
-  if (input.mismatchUrl) {
+  if (input.mismatchKey || input.mismatchUrl) {
     candidates.push(
       input.forceSync
         ? {
-            key: `mm:${input.mismatchUrl}`,
+            key: `mm:${input.mismatchKey || input.mismatchUrl}`,
             text: "已强制同步（与房主不同页面）",
             tone: "info",
             actions: ["unforce"]
           }
         : {
-            key: `mm:${input.mismatchUrl}`,
+            key: `mm:${input.mismatchKey || input.mismatchUrl}`,
             text: "你和大家不在同一个视频",
             tone: "warn",
             actions: ["jump", "force"]
@@ -64,7 +64,7 @@ function toastFor(input) {
   return null;
 }
 
-const base = { waitingName: "", request: null, mismatchUrl: "", noticeText: "", noticeTone: "info", forceSync: false, isHost: false, panelOpen: false };
+const base = { waitingName: "", request: null, mismatchUrl: "", mismatchKey: "", noticeText: "", noticeTone: "info", forceSync: false, isHost: false, panelOpen: false };
 const request = { id: "r1", fromName: "小林", label: "12:34" };
 
 test("nothing active means no bubble", () => {
@@ -144,8 +144,20 @@ test("with the panel open, action bubbles stand down (the panel has the buttons)
   assert.deepEqual(toastFor({ ...base, mismatchUrl: "u" }).actions, ["jump", "force"]);
 });
 
-test("the key is stable for the same item and changes with the item", () => {
-  // Stable: the bubble is shown once per item, not once per poll.
+test("the mismatch bubble is keyed on the video, not its URL", () => {
+  // A page whose query string churns between reports must not re-fire the same
+  // warning.
+  const a = toastFor({ ...base, mismatchUrl: "https://x/v?t=1", mismatchKey: "url:x/v" });
+  const b = toastFor({ ...base, mismatchUrl: "https://x/v?t=2", mismatchKey: "url:x/v" });
+  assert.equal(a.key, b.key);
+  // A genuinely different video is a new bubble.
+  const c = toastFor({ ...base, mismatchUrl: "https://x/w", mismatchKey: "url:x/w" });
+  assert.notEqual(a.key, c.key);
+  // Without a key we still fall back to the URL (an older room row).
+  assert.equal(toastFor({ ...base, mismatchUrl: "https://x/v" }).key, "mm:https://x/v");
+});
+
+test("the key is stable for the same item and changes with the item", () => {  // Stable: the bubble is shown once per item, not once per poll.
   assert.equal(toastFor({ ...base, mismatchUrl: "u" }).key, toastFor({ ...base, mismatchUrl: "u" }).key);
   assert.equal(toastFor({ ...base, request }).key, toastFor({ ...base, request }).key);
   // A new request or a new URL is a new bubble.

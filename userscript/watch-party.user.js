@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.9.9
+// @version      0.10.0
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -54,16 +54,19 @@
     stallSampleMs: 1000, // how often we check our own playback for a stall
     stallAdvanceSec: 0.25, // position movement that counts as "still playing"
     stallFreshSec: 10, // a stall signal older than this is ignored (tab may be gone)
-    // Cross-tab lock: a reporting tab announces itself on a heartbeat so a tab
-    // that loads later (or missed a takeover) never reports at the same time.
-    lockHeartbeatMs: 3000,
-    lockClaimWaitMs: 1000, // how long a new tab waits for an existing reporter to answer
-    lockClaimJitterMs: 800, // random extra wait, so two tabs opened together do not both claim
-    lockHandoffJitterMs: 500, // settle time before taking over from a closed tab
-    lockHandoffRetryMs: 3000, // if nobody claimed after a hand-off, take it back
-    standbyWatchdogMs: 5000, // a stood-down tab still polls to keep its panel alive
-    standbyTakeoverMs: 12000, // a standby tab takes over if the row stops updating
-    peerSilenceMs: 15000, // ...and only when no other tab has been heard from
+    // Which tab is allowed to report. The user picks it explicitly with
+    // 「同步当前视频」; nothing ever takes the job automatically. The old design
+    // tried to infer "is another tab still alive" from probes and heartbeats,
+    // which cannot work: Chrome throttles hidden tabs to about one timer per
+    // minute, so a perfectly healthy background tab looks dead.
+    ownerKey: "watch-party-sync-owner-v1",
+    lockHeartbeatMs: 3000, // how often the owner stamps its record (local writes only)
+    ownerStaleMs: 180000, // 3 min: generous, because hidden-tab timers are throttled
+    // One-shot handoff for 「跳转到一起看的视频」: the tab we open for the shared
+    // video is the one the user meant, so it may take over. A plain new tab never
+    // matches it and stays passive.
+    handoffKey: "watch-party-handoff-v1",
+    handoffTtlMs: 60000,
     mismatchSteadyPolls: 2, // polls that must agree before the mismatch UI changes
     toastMs: 5000, // how long a bubble stays before it hides itself
     hostJumpFreshMs: 8000, // a "the host jumped" notice older than this is ignored
@@ -570,6 +573,15 @@
       return typeof key === "string" && key.startsWith("feat:");
     }
 
+    // Both sides carry a URL-derived key, so the answer cannot flap and needs no
+    // debounce. Anything else falls back to the duration+title fingerprint, which
+    // is built from metadata that can still be arriving.
+    function reliableComparison(localState, hostState) {
+      const lk = localState && localState.videoKey;
+      const hk = hostState && hostState.videoKey;
+      return Boolean(lk && hk && !isFeatKey(lk) && !isFeatKey(hk));
+    }
+
     // Compare local vs host. Returns true when we believe it's the same video,
     // and intentionally errs toward true when host info is insufficient so we
     // never wrongly stop following.
@@ -579,7 +591,7 @@
       const hostKey = hostState.videoKey;
       if (!hostKey) return true; // host gave us nothing to compare against
 
-      if (localKey && hostKey && !isFeatKey(localKey) && !isFeatKey(hostKey)) {
+      if (reliableComparison(localState, hostState)) {
         return localKey === hostKey;
       }
 
@@ -592,256 +604,163 @@
       return sameDur && sameTitle;
     }
 
-    return { computeVideoKey, isSameVideo, isFeatKey };
+    return { computeVideoKey, isSameVideo, isFeatKey, reliableComparison };
   })();
 
   // ===========================================================================
-  // Module: tabLock
-  // Ensures only one tab in this browser is the "active" syncing tab for a room.
-  // Uses BroadcastChannel (falls back to localStorage storage events). The
-  // newest tab to claim wins (1a "later claimer takes over"); the previous
-  // active tab yields to standby. participantId is shared across tabs (2a).
+  // Module: syncOwner (which browser tab is allowed to report for the room)
+  // ---------------------------------------------------------------------------
+  // Deliberately dumb: the *user* picks the syncing tab with 「同步当前视频」, and
+  // nothing ever takes the job automatically. The previous design tried to infer
+  // "is another tab still alive" from probes and heartbeats, which cannot work —
+  // Chrome throttles hidden tabs to roughly one timer per minute (and freezes
+  // them entirely), so a perfectly healthy background tab looks dead and a second
+  // tab starts reporting too. That is what made several tabs sync at once and
+  // what made the room's video flap between them.
+  //
+  // The ownership record lives in the userscript manager's storage, because that
+  // is the only channel shared by tabs on *different* sites. The per-tab id lives
+  // in sessionStorage: a reload keeps it (so F5 goes on syncing, as asked), while
+  // a newly opened tab gets a fresh one and therefore never inherits the job.
   // ===========================================================================
-  const tabLock = (() => {
-    const CHANNEL = "watch-party-lock-v1";
-    const tabId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    let mode = "standby"; // "active" | "standby"
-    let claimAt = 0; // when we last claimed, used to break ties between tabs
-    let serial = 0; // makes every message unique, so identical ones still fire
-    let claimTimer = null; // pending "claim only if nobody else is reporting"
+  const syncOwner = (() => {
+    const KEY = CONFIG.ownerKey;
+    const TAB_KEY = "watch-party-tab-id";
+
+    function newId() {
+      return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+
+    // Same page ignoring query/hash: the jump handoff records a URL and the new
+    // tab compares it with whatever it ended up loading.
+    function samePage(a, b) {
+      try {
+        const x = new URL(a);
+        const y = new URL(b);
+        return x.origin === y.origin && x.pathname === y.pathname;
+      } catch {
+        return false;
+      }
+    }
+
+    let tabId = "";
+    try {
+      tabId = sessionStorage.getItem(TAB_KEY) || "";
+    } catch {
+      /* sessionStorage can be unavailable; a per-load id is then used */
+    }
+    if (!tabId) {
+      tabId = newId();
+      try {
+        sessionStorage.setItem(TAB_KEY, tabId);
+      } catch {
+        /* ignore */
+      }
+    }
+
     let heartbeatTimer = null;
-    let onYield = () => {};
-    let onPeerReleased = () => {};
+    let onChanged = () => {};
 
-    // Every mode change is logged with its reason: when the panel shows the
-    // standby hint unexpectedly, this says exactly who decided it.
-    function switchMode(next, why) {
-      if (mode === next) return;
-      mode = next;
-      try {
-        console.info(next === "active" ? `[一起看] 我接管了同步（${why}）` : `[一起看] 我让出同步（${why}）`);
-      } catch {
-        /* ignore */
-      }
+    function read() {
+      const rec = storage.get(KEY, null);
+      return rec && typeof rec === "object" ? rec : null;
+    }
+    function write(rec) {
+      storage.set(KEY, rec);
+    }
+    function ownerOf(roomId) {
+      const rec = read();
+      if (!rec || rec.roomId !== roomId) return null;
+      return rec.ownerTabId || null;
+    }
+    function isOwner(roomId) {
+      return Boolean(roomId) && ownerOf(roomId) === tabId;
     }
 
-    // Tampermonkey's storage is shared by *every* tab of this script, including
-    // tabs on completely different sites — which is the only transport that
-    // works when the room's videos live on different origins. BroadcastChannel
-    // and localStorage are per-origin, so they stay as fallbacks for
-    // non-Tampermonkey environments (same-site tabs then still coordinate).
-    const gmChannel =
-      typeof GM_addValueChangeListener === "function" && typeof GM_setValue === "function";
-    const channel = (() => {
-      if (typeof BroadcastChannel === "function") {
-        try {
-          return new BroadcastChannel(CHANNEL);
-        } catch {
-          /* fall through to localStorage */
-        }
-      }
-      return null;
-    })();
-
-    function post(msg) {
-      const payload = { ...msg, tabId, serial: serial++ };
-      if (gmChannel) {
-        try {
-          GM_setValue(CHANNEL, JSON.stringify(payload));
+    // Stamp the record so other tabs can tell "the owner is still around" from
+    // "the owner was closed". Purely informational: it never claims anything, and
+    // the threshold that reads it is deliberately generous (see ownerStaleMs).
+    function startHeartbeat(roomId) {
+      stopHeartbeat();
+      const bump = () => {
+        const rec = read();
+        // Only our own record: another tab may have taken over meanwhile.
+        if (!rec || rec.roomId !== roomId || rec.ownerTabId !== tabId) {
+          stopHeartbeat();
           return;
-        } catch {
-          /* fall through */
         }
-      }
-      if (channel) {
-        try {
-          channel.postMessage(payload);
-          return;
-        } catch {
-          /* fall through */
-        }
-      }
-      try {
-        // storage event fires in *other* tabs; include a nonce so repeated
-        // identical messages still trigger.
-        localStorage.setItem(CHANNEL, JSON.stringify({ ...payload, n: Math.random() }));
-      } catch {
-        /* ignore */
-      }
+        write({ ...rec, at: Date.now() });
+      };
+      bump();
+      heartbeatTimer = setInterval(bump, CONFIG.lockHeartbeatMs);
     }
-
-    // Whoever claimed most recently owns the lock. The tab id only breaks exact
-    // ties, so two tabs that claim in the same millisecond still converge on one
-    // winner instead of both stepping down.
-    function losesTo(msg) {
-      const theirClaim = Number(msg.claimedAt) || 0;
-      if (theirClaim !== claimAt) return theirClaim > claimAt;
-      return String(msg.tabId) > tabId;
-    }
-
-    function startHeartbeat() {
-      if (heartbeatTimer) return;
-      heartbeatTimer = setInterval(() => {
-        if (mode === "active") post({ type: "active", claimedAt: claimAt });
-      }, CONFIG.lockHeartbeatMs);
-    }
-
     function stopHeartbeat() {
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       heartbeatTimer = null;
     }
 
-    function becomeActive() {
-      switchMode("active", "只有我在上报");
-      claimAt = Date.now();
-      post({ type: "claim", claimedAt: claimAt });
-      startHeartbeat();
-    }
-
-    function handle(msg) {
-      if (!msg || msg.tabId === tabId) return;
-      if (msg.type === "probe") {
-        // A tab is asking whether anybody is already reporting. Answering is
-        // event-driven, so it works even while this tab is throttled in the
-        // background — which is why the claim decision uses this instead of
-        // waiting for the next heartbeat.
-        if (mode === "active") post({ type: "active", claimedAt: claimAt });
-        return;
-      }
-      if (msg.type === "claim" || msg.type === "active") {
-        // Remember that a sibling tab is alive: a tab that stepped down must not
-        // fight it later just because *its own* row (a different participant id,
-        // e.g. after joining the same room twice) stopped being updated.
-        lastPeerSeenAt = Date.now();
-        // Somebody else is (or is about to be) the reporting tab: drop any
-        // pending takeover of ours, and step down if we thought we owned it.
-        if (claimTimer) {
-          clearTimeout(claimTimer);
-          claimTimer = null;
-          try {
-            console.info(`[一起看] 放弃接管（收到另一个标签的 ${msg.type}）`);
-          } catch {
-            /* ignore */
-          }
-          // We are not the reporting tab after all — let the panel say so.
-          onYield();
-        }
-        if (mode === "active" && losesTo(msg)) {
-          switchMode("standby", "另一个标签声明得更晚");
-          stopHeartbeat();
-          onYield();
-        }
-      } else if (msg.type === "release") {
-        // That tab is going away, so nothing is reporting for this browser any
-        // more — let the watchdog take over without waiting out the silence.
-        lastPeerSeenAt = 0;
-        onPeerReleased();
-      }
-    }
-
-    if (gmChannel) {
-      try {
-        // Fires in other tabs (including other origins) whenever this script
-        // writes the lock value. `remote` filters out our own writes.
-        GM_addValueChangeListener(CHANNEL, (_name, _oldValue, newValue, remote) => {
-          if (!remote || !newValue) return;
-          try {
-            handle(JSON.parse(newValue));
-          } catch {
-            /* ignore */
-          }
-        });
-      } catch {
-        /* ignore */
-      }
-    } else if (channel) {
-      channel.addEventListener("message", (ev) => handle(ev.data));
-    } else {
-      window.addEventListener("storage", (ev) => {
-        if (ev.key !== CHANNEL || !ev.newValue) return;
-        try {
-          handle(JSON.parse(ev.newValue));
-        } catch {
-          /* ignore */
-        }
-      });
-    }
-
-    window.addEventListener("pagehide", (ev) => {
-      // Parked in the back/forward cache: the page is frozen, not gone. Standing
-      // down here (and telling everyone) made the tab flash "synced in another
-      // tab" the moment it came back, so keep our state instead — pageshow
-      // re-probes, and a real unfreeze/takeover is handled by the watchdog.
-      if (ev && ev.persisted) return;
-      // Leaving for real: stop announcing ourselves. If this page is restored
-      // later it re-probes via pageshow, so it can never come back as a second
-      // reporter.
-      stopHeartbeat();
-      if (claimTimer) {
-        clearTimeout(claimTimer);
-        claimTimer = null;
-      }
-      const wasActive = mode === "active";
-      switchMode("standby", "页面即将离开");
-      if (wasActive) post({ type: "release" });
-    });
-
     return {
-      // "I am reporting, or I am about to" — a pending claim counts, so the
-      // panel does not flash the standby hint while a takeover is being decided.
-      isActive: () => mode === "active" || Boolean(claimTimer),
-      claim() {
-        if (claimTimer) {
-          clearTimeout(claimTimer);
-          claimTimer = null;
-        }
-        becomeActive();
+      tabId,
+      isOwner,
+      ownerOf,
+      current: read,
+      // Explicit takeover: from now on this tab reports, and every other tab
+      // (any origin) sees it and stands down.
+      claim(roomId) {
+        write({ roomId, ownerTabId: tabId, at: Date.now() });
+        startHeartbeat(roomId);
       },
-      // Take over only if nobody in this browser is already reporting: ask, and
-      // let an existing reporter answer before we claim. The random extra wait
-      // keeps two tabs opened at the same instant from claiming together.
-      claimWhenFree(delayMs, onClaimed) {
-        if (mode === "active") {
-          if (onClaimed) onClaimed();
-          return;
+      // Give the job up. The room id stays in the record so latecomers can tell
+      // "nobody is syncing this room" from "this is somebody else's room".
+      release(roomId) {
+        if (roomId && ownerOf(roomId) === tabId) {
+          write({ roomId, ownerTabId: null, at: Date.now() });
         }
-        if (claimTimer) clearTimeout(claimTimer);
-        post({ type: "probe" });
-        const wait = delayMs + Math.floor(Math.random() * CONFIG.lockClaimJitterMs);
-        claimTimer = setTimeout(() => {
-          claimTimer = null;
-          if (mode === "active") return;
-          becomeActive();
-          if (onClaimed) onClaimed();
-        }, wait);
-      },
-      // Stand down and tell the other tabs, so one of them can pick it up.
-      yieldActive() {
-        if (claimTimer) {
-          clearTimeout(claimTimer);
-          claimTimer = null;
-        }
-        if (mode === "active") {
-          switchMode("standby", "主动让位（离开房间）");
-          stopHeartbeat();
-          post({ type: "release" });
-        }
-      },
-      // Stand down silently: used when another tab is already opening (the
-      // "jump to the shared video" flow), so only that new tab takes over.
-      suspend() {
-        if (claimTimer) {
-          clearTimeout(claimTimer);
-          claimTimer = null;
-        }
-        switchMode("standby", "让位给新打开的视频页");
         stopHeartbeat();
       },
-      set onYield(fn) {
-        onYield = fn;
+      // 「跳转到一起看的视频」: record which URL the tab we are about to open will
+      // land on, then let go. Only a tab that actually lands there may take over.
+      handOff(roomId, url) {
+        if (roomId) write({ roomId, ownerTabId: null, at: Date.now() });
+        stopHeartbeat();
+        storage.set(CONFIG.handoffKey, { roomId, url, token: newId(), at: Date.now() });
       },
-      set onPeerReleased(fn) {
-        onPeerReleased = fn;
+      takeHandoff(roomId, url) {
+        const rec = storage.get(CONFIG.handoffKey, null);
+        if (!rec || !rec.token || rec.roomId !== roomId || !rec.url) return false;
+        if (Date.now() - (Number(rec.at) || 0) > CONFIG.handoffTtlMs) return false;
+        if (!samePage(rec.url, url)) return false;
+        storage.del(CONFIG.handoffKey);
+        return true;
+      },
+      // Another tab changed the record (any origin, when the manager provides the
+      // shared storage channel).
+      onChange(fn) {
+        onChanged = fn;
+        if (typeof GM_addValueChangeListener === "function") {
+          try {
+            GM_addValueChangeListener(KEY, (_name, _old, _value, remote) => {
+              if (remote) onChanged();
+            });
+          } catch {
+            /* ignore */
+          }
+        }
+        // Fallback for managers without the shared storage channel: same-origin
+        // tabs still coordinate, cross-origin ones do not (same limitation as the
+        // old lock, and the reason the GM path is preferred).
+        window.addEventListener("storage", (ev) => {
+          if (ev.key === KEY) onChanged();
+        });
+      },
+      // True when the recorded owner has not checked in for a long time. Used
+      // only to *tell* the user their sync tab may be gone — taking over stays a
+      // manual decision, because a throttled (or frozen) hidden tab looks exactly
+      // like a closed one.
+      looksAbandoned() {
+        const rec = read();
+        if (!rec || !rec.ownerTabId) return false;
+        return Date.now() - (Number(rec.at) || 0) > CONFIG.ownerStaleMs;
       }
     };
   })();
@@ -892,6 +811,11 @@
       const listeners = [];
       let lastTime = null;
       let lastAdvanceAt = Date.now();
+      // Last position we actually managed to read. Swapping episodes (`emptied`)
+      // or attaching to a freshly inserted <video> reports NaN for a moment, and
+      // publishing that as 0 used to overwrite the room's position and drag
+      // everybody back to the start of the video.
+      let lastGoodTime = null;
 
       function bind(video) {
         if (el === video) return;
@@ -944,8 +868,13 @@
           }
           if (!el) return null;
           noteAdvance();
+          const now = el.currentTime;
+          const known = typeof now === "number" && Number.isFinite(now);
+          if (known) lastGoodTime = now;
           return {
-            currentTime: Number(el.currentTime) || 0,
+            // `null` means "position not known yet" — never a real 0. A real 0
+            // (the user seeked to the very start) is finite and passes through.
+            currentTime: known ? now : lastGoodTime,
             duration: Number.isFinite(el.duration) ? el.duration : 0,
             paused: Boolean(el.paused),
             buffering: isBuffering(),
@@ -1134,7 +1063,8 @@
     let reportTimer = null;
     let fetchTimer = null; // setTimeout handle: polling re-schedules itself each round
     let stallTimer = null;
-    let standbyTimer = null; // watchdog while we have stood down for another tab
+    // Passive tab: polls for the panel but never reports (see startPassivePoll).
+    let passiveTimer = null;
     let running = false;
     let lastManualSeekAt = 0;
     let lastProgrammaticSeekAt = 0;
@@ -1156,7 +1086,6 @@
     let lastParticipantCount = 0; // used to notice someone joining (see fetchNow)
     let pendingJumpId = ""; // host: "I moved the timeline", announced once
     let lastHostJumpId = ""; // member: the last host jump we told the user about
-    let lastPeerSeenAt = 0; // last time another tab of this browser spoke to us
     let onUpdate = () => {};
     let onError = () => {};
     let onMismatch = () => {};
@@ -1248,11 +1177,12 @@
       }
       const room = roomStore.get();
       if (!room) return;
-      // Only the tab that owns the lock reports. Without this, a tab that stepped
-      // down (or is on standby) would still overwrite the room's row whenever its
-      // video fired play/pause/seeked — which is what made the room's video (and
-      // so the "different video" indicator) flip back and forth.
-      if (!running) return;
+      // Only the tab the user picked may write to the room. `running` already
+      // covers this, but a cross-tab stand-down message can arrive a moment late;
+      // this second check makes it impossible for two tabs to report at once, and
+      // that is what keeps the room's video (and so the "different video"
+      // indicator) from flapping between tabs.
+      if (!running || !syncOwner.isOwner(room.roomId)) return;
       const state = localState();
       if (!state) return;
       // Co-op fields ride along with the normal report.
@@ -1297,51 +1227,27 @@
       onNotice("房主调整了进度", "info");
     }
 
-    // The room is *not* used to decide who reports — the cross-tab channel does
-    // that (it is instant, and the diagnostics proved it reaches tabs on other
-    // sites too). This function is purely the standby watchdog: keep the panel's
-    // data fresh, and take the job back if the reporting tab stopped updating
-    // (crashed, discarded, navigated away …). It needs no extra state fields,
-    // just the row's own timestamp.
-    // A stood-down tab only takes the job back when *both* are true: its own row
-    // has gone quiet, and no sibling tab has been heard from for a while. The
-    // second condition matters because two tabs can hold *different* participant
-    // ids (e.g. after joining the same room twice) — then each one's own row goes
-    // stale while the other keeps reporting, and a row-only rule would make the
-    // two of them fight forever. Pure, mirrored in tests/follow-sync.test.js.
-    function shouldReclaim(rowStaleMs, peerSilentMs) {
-      return rowStaleMs >= CONFIG.standbyTakeoverMs && peerSilentMs >= CONFIG.peerSilenceMs;
-    }
-
-    function standbyWatchdogTick(roomState) {
-      const room = roomStore.get();
-      if (!room || !roomState) return true;
-      if (!standbyTimer) return true; // only a stood-down tab runs this
-      const mine = roomState.participants.find((p) => p.participantId === room.participantId);
-      if (!mine || !mine.state) return true;
-      const rowStaleMs = reportAgeSec(roomState, mine, CONFIG.standbyTakeoverMs / 1000) * 1000;
-      const peerSilentMs = Date.now() - lastPeerSeenAt;
-      if (shouldReclaim(rowStaleMs, peerSilentMs)) {
-        activate(); // nobody is reporting for us any more: take over
-        return false;
-      }
-      onUpdate(roomState); // still somebody else's job: just refresh the panel
-      return false;
-    }
-
-    function startStandbyWatchdog() {
-      if (standbyTimer) return;
-      // Fetch once straight away so a standby tab's panel shows the participants
-      // without waiting for the first tick.
+    // A tab that is not the syncing one still shows the room: it polls so the
+    // panel has participants, member positions and the mismatch verdict (which is
+    // how the 「跳转到一起看的视频」 button appears), but it must never report,
+    // seek or play/pause anything. Own movement is gated separately — see the
+    // `running` check in applyFollow and the ownership gate in reportNow.
+    //
+    // There is deliberately no takeover here any more: a timer cannot tell "that
+    // tab is closed" from "that tab is backgrounded and Chrome throttled it", and
+    // guessing wrong is exactly what produced two reporters at once.
+    function startPassivePoll() {
+      if (passiveTimer) return;
       fetchNow().catch(() => {});
-      standbyTimer = setInterval(() => {
+      passiveTimer = setInterval(() => {
+        if (running) return; // this tab took over in the meantime
         fetchNow().catch(() => {});
-      }, CONFIG.standbyWatchdogMs);
+      }, CONFIG.fetchIntervalIdleMs);
     }
 
-    function stopStandbyWatchdog() {
-      if (standbyTimer) clearInterval(standbyTimer);
-      standbyTimer = null;
+    function stopPassivePoll() {
+      if (passiveTimer) clearInterval(passiveTimer);
+      passiveTimer = null;
     }
 
     let fetchInFlight = false;
@@ -1362,10 +1268,12 @@
         lastRoomState = data;
         // Someone just joined: push a fresh position immediately instead of
         // letting them align to a stale one (and possibly call us offline).
+        // Someone just joined: push a fresh position immediately instead of
+        // letting them align to a stale one (no-op unless this tab is the one
+        // that syncs).
         const count = (data.participants || []).length;
         if (count > lastParticipantCount) reportNow().catch(() => {});
         lastParticipantCount = count;
-        if (!standbyWatchdogTick(data)) return;
         // Waiting on a stall is everyone's business (the host included);
         // following the host is only what members do.
         applyRoomWait(data);
@@ -1458,23 +1366,28 @@
       // cannot make the panel flicker, but whether we follow is decided by the
       // immediate answer — a stray follow must never slip through just because
       // the warning had not been confirmed yet.
+      //
+      // Only the weak fallback needs that debounce: when both sides carry a
+      // URL-derived key (`bili:BV…`, `url:host/path`) the answer cannot flap, and
+      // waiting two polls for it is what made the jump button appear ~10s late
+      // once the fast poll rate was reserved for tabs that are actually moving.
       const sameVideo = videoIdentity.isSameVideo(local, host.state);
-      const verdict = nextMismatchState(
-        Boolean(mismatchHost),
-        mismatchVotes,
-        sameVideo,
-        CONFIG.mismatchSteadyPolls
-      );
+      const steady = videoIdentity.reliableComparison(local, host.state) ? 1 : CONFIG.mismatchSteadyPolls;
+      const verdict = nextMismatchState(Boolean(mismatchHost), mismatchVotes, sameVideo, steady);
       mismatchVotes = verdict.votes;
       if (verdict.showing) {
         // Keep the newest host state so the jump button follows the current URL.
         mismatchHost = host.state;
-        if (verdict.votes.diff === CONFIG.mismatchSteadyPolls) onMismatch(host.state);
+        if (verdict.votes.diff === steady) onMismatch(host.state);
       } else if (mismatchHost) {
         // Confirmed back on the same video: tell the panel to drop the warning.
         mismatchHost = null;
         onMismatch(null);
       }
+      // A tab that is not the syncing one still computes the verdict above — that
+      // is how its panel shows the warning and the jump button — but it must
+      // never move its player: the user picked a different tab to be in charge.
+      if (!running) return;
       // A different video normally means "do not follow at all" — unless the
       // member pressed 强制同步, i.e. declared that the two pages are the same
       // video and the timeline should be followed anyway.
@@ -1664,14 +1577,20 @@
 
     function fetchDelayContext() {
       const room = roomStore.get();
-      const participants = (lastRoomState && Array.isArray(lastRoomState.participants) && lastRoomState.participants) || [];
+      const cfg = settings.get();
+      const participants =
+        (lastRoomState && Array.isArray(lastRoomState.participants) && lastRoomState.participants) || [];
       const solo = Boolean(lastRoomState) && participants.length <= 1;
-      // "Following" = this tab would actually be moved by the host's next report.
-      // `mismatchHost` is set when the host is on a different video, which is
-      // exactly when following is suspended.
-      const following =
-        Boolean(room) && room.role !== "host" && settings.get().autoFollowProgress && !mismatchHost;
-      return { inRoom: Boolean(room), solo, following };
+      // Poll fast only when a reply can actually move this tab. A member who is
+      // not following (different video, auto-follow off) is not moved by progress
+      // alone, but play/pause sync still moves them — and so does an unsettled
+      // mismatch verdict, which must not sit behind a 5s poll.
+      const canBeMoved =
+        Boolean(room) &&
+        room.role !== "host" &&
+        ((cfg.autoFollowProgress && !mismatchHost) || cfg.forceSync || cfg.followPlayPause);
+      const verdictPending = mismatchVotes.diff > 0 || mismatchVotes.same > 0;
+      return { inRoom: Boolean(room), solo, following: canBeMoved || verdictPending };
     }
 
     function reportDelayMs() {
@@ -1731,11 +1650,10 @@
         }
       }, CONFIG.stallSampleMs);
       // Background tabs throttle timers heavily; realign the moment we come back
-      // to the foreground.
+      // to the foreground. A passive tab wants this just as much (its panel is
+      // what shows the jump button).
       visibilityHandler = () => {
-        if (document.visibilityState === "visible" && tabLock.isActive()) {
-          fetchNow().catch(() => {});
-        }
+        if (document.visibilityState === "visible") fetchNow().catch(() => {});
       };
       document.addEventListener("visibilitychange", visibilityHandler);
       reportNow().catch(() => {});
@@ -1750,8 +1668,8 @@
       if (reportTimer) clearInterval(reportTimer);
       if (fetchTimer) clearTimeout(fetchTimer);
       if (stallTimer) clearInterval(stallTimer);
-      if (standbyTimer) clearInterval(standbyTimer);
-      reportTimer = fetchTimer = stallTimer = standbyTimer = null;
+      if (passiveTimer) clearInterval(passiveTimer);
+      reportTimer = fetchTimer = stallTimer = passiveTimer = null;
       waitingFor = null;
       pausedForWait = false;
       if (visibilityHandler) {
@@ -1760,47 +1678,54 @@
       }
     }
 
-    // Become the active syncing tab (claims the cross-tab lock, evicting any
-    // other active tab), then start reporting/following.
+    // The user explicitly asked *this* tab to be the one that syncs (the panel's
+    // 「同步当前视频」 button, or creating a room). Recording it in shared storage
+    // is what makes every other tab — on any site — stand down.
     function activate() {
-      tabLock.claim();
+      const room = roomStore.get();
+      if (!room) return;
+      syncOwner.claim(room.roomId);
       start();
+      onUpdate(lastRoomState);
     }
 
-    // On load we do not grab the lock: if another tab of this browser is already
-    // reporting, its heartbeat arrives while we wait and we stay standby. Use
-    // the panel's 「在此标签同步」 button to take over on purpose.
-    //
-    // The watchdog is started either way: if we do claim, start() clears it, and
-    // if we do not, it is what keeps a standby tab's panel populated (participant
-    // list, member positions) instead of showing "no participants".
+    // On load we report only if this same tab was the syncing one before the
+    // reload (the tab id lives in sessionStorage, so F5 keeps it) — or if the user
+    // just pressed 「跳转到一起看的视频」 in another tab and this is the page that
+    // opened. Any other tab stays passive: it shows the room and waits to be
+    // chosen, and it never inherits the job.
     function activateOnLoad() {
-      startStandbyWatchdog();
-      tabLock.claimWhenFree(CONFIG.lockClaimWaitMs, () => {
+      const room = roomStore.get();
+      if (!room) return;
+      if (syncOwner.takeHandoff(room.roomId, location.href)) {
+        activate();
+        return;
+      }
+      if (syncOwner.isOwner(room.roomId)) {
         start();
         onUpdate(lastRoomState);
-      });
+        return;
+      }
+      startPassivePoll();
+      onUpdate(lastRoomState);
     }
 
-    // Hand the lock to a tab that is about to open (the jump flow). The stand
-    // down is silent so only that new tab claims it, and from then on the standby
-    // watchdog decides: it sees the new tab's fresh id and stays down, or takes
-    // the job back if the target page never took over (e.g. its domain is not
-    // matched, so the script does not run there at all).
-    function releaseForHandoff() {
-      tabLock.suspend();
+    // 「跳转到一起看的视频」: hand the job to the tab we are about to open for the
+    // shared video (and only to it — it proves it is that tab by landing on the
+    // recorded URL). Then stop reporting here.
+    function releaseForHandoff(url) {
+      const room = roomStore.get();
+      if (room) syncOwner.handOff(room.roomId, url);
       stop();
-      startStandbyWatchdog();
+      startPassivePoll();
       onUpdate(lastRoomState);
     }
 
     // Stop reporting/following but keep room membership so the tab can be
-    // re-activated later. Triggered when another tab claims the lock.
-    // A tab that steps out of the room must also let go of the cross-tab lock,
-    // otherwise its heartbeat keeps telling other tabs "somebody is reporting"
-    // and the room is left without one.
+    // re-activated later (another tab took over, or the user left the room).
     function leaveRoom() {
-      tabLock.yieldActive();
+      const room = roomStore.get();
+      if (room) syncOwner.release(room.roomId);
       stop();
       pendingRequest = null;
       skipWaitActive = false;
@@ -1820,31 +1745,26 @@
       }
     }
 
-    tabLock.onYield = () => {
-      deactivate();
-      // A yielded tab is a standby tab: it still shows the panel, so keep the
-      // watchdog running (deactivate/stop clears it).
-      startStandbyWatchdog();
+    // Somebody else took the job (possibly a tab on another site, which is the
+    // only reason this needs to travel through the manager's shared storage).
+    // Stand down and keep showing the room.
+    syncOwner.onChange(() => {
+      const room = roomStore.get();
+      if (!room || syncOwner.isOwner(room.roomId)) return;
+      if (running) {
+        deactivate();
+        startPassivePoll();
+      }
       onUpdate(lastRoomState);
-    };
+    });
 
-    // Restored from the back/forward cache: re-probe for the lock instead of
-    // assuming we are still the reporter (another tab may have taken over while
-    // this page was parked).
+    // Restored from the back/forward cache: re-read who owns sync instead of
+    // assuming it is still us (another tab may have taken over while this page
+    // was parked).
     window.addEventListener("pageshow", (ev) => {
       if (!ev.persisted || !roomStore.get()) return;
       activateOnLoad();
     });
-
-    // The reporting tab went away (closed or navigated). Give the others a
-    // moment to sort it out via the heartbeat, then take over if nobody did.
-    tabLock.onPeerReleased = () => {
-      if (!roomStore.get()) return;
-      tabLock.claimWhenFree(CONFIG.lockHandoffJitterMs, () => {
-        start();
-        onUpdate(lastRoomState);
-      });
-    };
 
     return {
       start,
@@ -1854,7 +1774,10 @@
       releaseForHandoff,
       leaveRoom,
       deactivate,
-      isActive: () => tabLock.isActive(),
+      // "This tab is the one that syncs" — the panel uses it to decide between
+      // the normal view and the 「同步当前视频」 prompt.
+      isActive: () => running,
+      ownerLooksAbandoned: () => syncOwner.looksAbandoned(),
       reportNow,
       fetchNow,
       markManualSeek,
@@ -2438,6 +2361,14 @@
       return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
     }
 
+    // A participant whose position has never been known (a row that exists but
+    // has no playback data yet) must not read as "0:00" — that looks like they
+    // are at the start of the video.
+    function fmtTime(state) {
+      const t = state && state.currentTime;
+      return typeof t === "number" && Number.isFinite(t) ? fmt(t) : "—";
+    }
+
     // Pure: which bubble deserves the screen right now. Priority is waiting >
     // jump request > different video > plain notice, and only one shows at a
     // time. Mirrored in tests/toast.test.js.
@@ -2459,17 +2390,17 @@
           actions: input.isHost ? ["accept", "ignore"] : []
         });
       }
-      if (input.mismatchUrl) {
+      if (input.mismatchKey || input.mismatchUrl) {
         candidates.push(
           input.forceSync
             ? {
-                key: `mm:${input.mismatchUrl}`,
+                key: `mm:${input.mismatchKey || input.mismatchUrl}`,
                 text: "已强制同步（与房主不同页面）",
                 tone: "info",
                 actions: ["unforce"]
               }
             : {
-                key: `mm:${input.mismatchUrl}`,
+                key: `mm:${input.mismatchKey || input.mismatchUrl}`,
                 text: "你和大家不在同一个视频",
                 tone: "warn",
                 actions: ["jump", "force"]
@@ -2554,6 +2485,9 @@
         waitingName: waiting ? waiting.name : "",
         request: request ? { id: request.id, fromName: request.fromName, label: fmt(request.time) } : null,
         mismatchUrl: mismatch && mismatch.url ? mismatch.url : "",
+        // Bubble identity: the *video*, not its URL. A page whose query string
+        // churns between reports would otherwise re-fire the same warning forever.
+        mismatchKey: mismatch ? mismatch.videoKey || mismatch.url || "" : "",
         noticeText: noticeText,
         noticeTone: noticeTone,
         forceSync: Boolean(settings.get().forceSync),
@@ -2721,15 +2655,23 @@
             <span class="wp-name${mismatch ? " wp-mismatch" : ""}">${escapeHtml(p.displayName || "朋友")}${
             p.role === "host" ? '<span class="wp-host-tag">房主</span>' : ""
           }${tag}</span>
-            <span class="wp-time">${playing} ${fmt(st.currentTime)}</span>
+            <span class="wp-time">${playing} ${fmtTime(st)}</span>
           </div>`;
         })
         .join("");
 
+      // Sync is never taken over automatically, so a tab that is not the chosen
+      // one always offers the button. When the recorded owner has gone quiet for a
+      // long time (closed, crashed — but *not* merely backgrounded, which is why
+      // the threshold is minutes), say so instead of claiming it is still running.
       const standbyBlock = active
         ? ""
-        : `<div id="wp-standby">同步正在另一个标签进行。
-            <button class="action" id="wp-activate">在此标签同步</button></div>`;
+        : `<div id="wp-standby">${
+            handlers.ownerLooksAbandoned()
+              ? "上次同步的标签似乎已关闭。"
+              : "同步正在另一个标签进行。"
+          }
+            <button class="action" id="wp-activate">同步当前视频</button></div>`;
 
       const mismatchHost = handlers.getMismatchHost();
       // Two states: a warning that following is paused, or — once the member
@@ -2922,6 +2864,7 @@
     isVideoDetected: () => syncEngine.detectVideo(),
     getRoomState: () => syncEngine.getRoomState(),
     isActive: () => syncEngine.isActive(),
+    ownerLooksAbandoned: () => syncEngine.ownerLooksAbandoned(),
     getMismatchHost: () => syncEngine.getMismatchHost(),
     getSeekRequest: () => syncEngine.getSeekRequest(),
     acceptSeekRequest: (id) => syncEngine.acceptSeekRequest(id),
@@ -2930,7 +2873,7 @@
     skipWait: () => syncEngine.skipWait(),
     activate() {
       syncEngine.activate();
-      panelUi.setNotice("已在此标签同步");
+      panelUi.setNotice("已在当前标签同步");
       panelUi.render();
       panelUi.setFabState("in-room");
     },
@@ -2946,11 +2889,12 @@
       } catch {
         /* unusual URL: just open it and let the user match manually */
       }
-      // Pause the current (unrelated) video, hand the lock over, then open the
-      // shared video in a new tab: that tab claims the lock on load and starts
-      // reporting the right video.
+      // Pause the current (unrelated) video, hand the job to the tab we are about
+      // to open (it is the tab the user meant, so it takes over on load), then
+      // open the shared video. This is the one automatic hand-off in the whole
+      // design, and it is one-shot: a plain new tab never matches it.
       syncEngine.pauseLocal();
-      syncEngine.releaseForHandoff();
+      syncEngine.releaseForHandoff(host.url);
       window.open(host.url, "_blank");
       panelUi.setNotice(matchedNow ? "已在新标签打开，并自动匹配了该站点" : "已在新标签打开一起看的视频");
     },
@@ -2971,6 +2915,8 @@
           hostToken: res.hostToken
         });
         console.info("[一起看] 创建房间：3/4 已保存房间", roomStore.get());
+        // Creating a room *is* an explicit "I want to sync here" — the host is the
+        // timeline. Joining is not: see join() below.
         syncEngine.activate();
         panelUi.setNotice("");
         panelUi.showForRoom();
@@ -2992,10 +2938,14 @@
         console.info("[一起看] 加入房间：2/4 服务端已返回", res);
         roomStore.save({ roomId: res.roomId, participantId: res.participantId, role: "participant" });
         console.info("[一起看] 加入房间：3/4 已保存房间", roomStore.get());
-        syncEngine.activate();
+        // Joining does *not* start syncing: the member first has to be on the right
+        // video anyway. The panel shows the room plus a 「同步当前视频」 button, and
+        // pressing 「跳转到一起看的视频」 hands the job to the tab that opens the
+        // shared video — that is the tab the user means.
+        syncEngine.activateOnLoad();
         panelUi.setNotice("");
         panelUi.showForRoom();
-        console.info("[一起看] 加入房间：4/4 完成");
+        console.info("[一起看] 加入房间：4/4 完成（等待选择同步标签）");
       } catch (err) {
         console.error("[一起看] 加入房间失败:", err);
         panelUi.setNotice(noticeForError(err.message), false, "error", true);
@@ -3067,12 +3017,12 @@
     // it. This runs before any room exists, so it stays completely silent.
     apiClient.warmup();
 
-    // Resume an existing room across reloads / SPA navigations. The lock is only
-    // taken if no other tab of this browser is already reporting, so opening a
-    // second tab on a different video cannot silently move the room. Taking over
-    // on purpose is the panel's 「在此标签同步」 button; the jump flow hands the
-    // lock to the new tab explicitly. When not in a room nothing is shown — the
-    // user opens the panel from the userscript menu.
+    // Resume an existing room across reloads / SPA navigations. Whether this tab
+    // *syncs* is never decided here: it syncs only if it already was the chosen
+    // tab before the reload, or if the user just pressed 「跳转到一起看的视频」 and
+    // this is the page that opened. Otherwise it is a passive viewer showing the
+    // room, with the 「同步当前视频」 button waiting. When not in a room nothing is
+    // shown — the user opens the panel from the userscript menu.
     if (roomStore.inRoom()) {
       panelUi.showForRoom();
       syncEngine.activateOnLoad();

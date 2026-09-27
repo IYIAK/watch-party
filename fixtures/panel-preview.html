@@ -111,10 +111,12 @@
       var realFetch = window.fetch.bind(window);
       window.fetch = function (input, init) {
         var url = typeof input === "string" ? input : input.url;
-        // 拦所有"后端"请求（脚本顶部那个地址），只放行本地静态资源。
+        // 拦「后端」请求：跨域的绝对地址。页面自己的资源（相对路径，如
+        // /userscript/watch-party.user.js）必须放行，否则脚本本身就加载不了。
         // 这样夹具不依赖任何具体域名，换后端也不用改这里。
-        var isLocalAsset = url.indexOf("127.0.0.1") !== -1 || url.indexOf("localhost") !== -1;
-        if (!isLocalAsset) {
+        var isBackend =
+          /^https?:\/\//i.test(url) && url.indexOf("127.0.0.1") === -1 && url.indexOf("localhost") === -1;
+        if (isBackend) {
           var method = (init && init.method) || "GET";
           if (method === "POST" && /\/rooms$/.test(url)) {
             return Promise.resolve(

@@ -216,25 +216,49 @@ test("a day in a room stays inside the free request quota", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Cross-tab: when a stood-down tab may take the job back
+// Cross-tab: which tab may report
 // ---------------------------------------------------------------------------
+// Sync ownership is now an explicit, user-clicked record; nothing takes the job
+// over on a timer, because a timer cannot tell "that tab is closed" from "that
+// tab is backgrounded and Chrome throttled it". The mirrors below pin down the
+// two rules that replaced the old watchdog.
 
-const TAKEOVER = { row: 12000, peer: 15000 };
+const OWNER_STALE_MS = 180000; // CONFIG.ownerStaleMs
 
-function shouldReclaim(rowStaleMs, peerSilentMs) {
-  return rowStaleMs >= TAKEOVER.row && peerSilentMs >= TAKEOVER.peer;
+// Mirrors syncOwner.looksAbandoned (userscript). Only ever used to *hint*; the
+// threshold is minutes on purpose, because hidden tabs are throttled to about one
+// timer per minute.
+function ownerLooksAbandoned(rec, now) {
+  if (!rec || !rec.ownerTabId) return false;
+  return now - (Number(rec.at) || 0) > OWNER_STALE_MS;
 }
 
-test("reclaiming needs both a stale row and a silent sibling", () => {
-  // Both quiet: nobody is reporting, so take over.
-  assert.equal(shouldReclaim(20000, 20000), true);
-  assert.equal(shouldReclaim(12000, 15000), true); // exactly at the limits
-  // A sibling tab is still talking: stay down, even though our own row (which can
-  // belong to a *different* participant id) looks stale. This is what stops two
-  // tabs from fighting forever.
-  assert.equal(shouldReclaim(600000, 3000), false);
-  // Our row is still fresh: somebody is reporting for us, so stay down.
-  assert.equal(shouldReclaim(1000, 60000), false);
+// Mirrors syncOwner.isOwner / takeHandoff: ownership is per room and per tab id,
+// and a brand-new tab (fresh sessionStorage id) is never the owner.
+function isOwner(rec, roomId, tabId) {
+  return Boolean(rec && rec.roomId === roomId && rec.ownerTabId === tabId);
+}
+
+test("only the explicitly chosen tab is the owner", () => {
+  const rec = { roomId: "ABC123", ownerTabId: "tab-a", at: 1000 };
+  assert.equal(isOwner(rec, "ABC123", "tab-a"), true);
+  // A different tab — including one that just opened — never inherits the job.
+  assert.equal(isOwner(rec, "ABC123", "tab-b"), false);
+  // Nor does a record for another room.
+  assert.equal(isOwner(rec, "ZZZ999", "tab-a"), false);
+  // After leaving, nobody owns it.
+  assert.equal(isOwner({ roomId: "ABC123", ownerTabId: null }, "ABC123", "tab-a"), false);
+});
+
+test("an abandoned owner is only ever a hint", () => {
+  const now = 1000000;
+  assert.equal(ownerLooksAbandoned({ ownerTabId: "tab-a", at: now - 1000 }, now), false);
+  assert.equal(ownerLooksAbandoned({ ownerTabId: "tab-a", at: now - 60000 }, now), false);
+  // A backgrounded tab that still ticks once a minute stays "alive" here.
+  assert.equal(ownerLooksAbandoned({ ownerTabId: "tab-a", at: now - 70000 }, now), false);
+  // Four minutes of silence: say so in the panel (the user still clicks).
+  assert.equal(ownerLooksAbandoned({ ownerTabId: "tab-a", at: now - 240000 }, now), true);
+  assert.equal(ownerLooksAbandoned(null, now), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -307,6 +331,37 @@ function nextMismatchState(showing, votes, sameVideo, steady) {
   if (showing) return { showing: next.same < steady, votes: next };
   return { showing: next.diff >= steady, votes: next };
 }
+
+// Mirrors videoIdentity.reliableComparison + the `steady` choice in applyFollow.
+// Two URL-derived keys cannot flap, so they must not wait for a second poll — that
+// wait is what made the jump button appear ~10s late on the slow poll rate.
+function reliableComparison(local, host) {
+  const lk = local && local.videoKey;
+  const hk = host && host.videoKey;
+  const isFeat = (k) => typeof k === "string" && k.startsWith("feat:");
+  return Boolean(lk && hk && !isFeat(lk) && !isFeat(hk));
+}
+
+function steadyPolls(local, host, configured) {
+  return reliableComparison(local, host) ? 1 : configured;
+}
+
+test("a mismatch between two real video keys shows on the first poll", () => {
+  const local = { videoKey: "url:site/a" };
+  const host = { videoKey: "url:site/b" };
+  const steady = steadyPolls(local, host, 2);
+  assert.equal(steady, 1);
+  const state = nextMismatchState(false, { same: 0, diff: 0 }, false, steady);
+  assert.equal(state.showing, true);
+});
+
+test("the weak fingerprint fallback keeps its two-poll debounce", () => {
+  // No key on one side: only duration+title are comparable, and those arrive late.
+  assert.equal(steadyPolls({ videoKey: "" }, { videoKey: "url:site/b" }, 2), 2);
+  assert.equal(steadyPolls({ videoKey: "feat:100:T" }, { videoKey: "url:site/b" }, 2), 2);
+  const first = nextMismatchState(false, { same: 0, diff: 0 }, false, 2);
+  assert.equal(first.showing, false);
+});
 
 test("one disagreement is not enough to warn about a different video", () => {
   let state = nextMismatchState(false, { same: 0, diff: 0 }, false, 2);

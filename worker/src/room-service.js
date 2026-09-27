@@ -118,7 +118,12 @@ export function createRoomService(db, options = {}) {
       }
     }
 
-    const cleanState = normalizePlaybackState(input.state);
+    // An explicit `null` means "this client cannot tell where it is right now"
+    // (a player swap, a <video> that has not loaded). Keep the last position we
+    // were told instead of overwriting it with 0, which used to drag the whole
+    // room back to the start of the video.
+    const previous = parseState(participant.state_json);
+    const cleanState = normalizePlaybackState(input.state, previous);
     const timestamp = now();
 
     await db
@@ -237,13 +242,12 @@ function normalizeOptionalString(value, fieldName, maxLength, truncate) {
   return text;
 }
 
-function normalizePlaybackState(value) {
+function normalizePlaybackState(value, previous) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new HttpError(400, "state must be an object");
   }
 
   const state = {
-    currentTime: normalizeFiniteNumber(value.currentTime, "currentTime", 0, 60 * 60 * 24),
     duration: normalizeFiniteNumber(value.duration, "duration", 0, 60 * 60 * 24),
     paused: Boolean(value.paused),
     url: normalizeOptionalString(value.url, "url", LIMITS.url, true),
@@ -259,6 +263,9 @@ function normalizePlaybackState(value) {
     // still honoured and the panel can say why they are following.
     forceSync: Boolean(value.forceSync)
   };
+
+  const time = normalizeCurrentTime(value.currentTime, previous);
+  if (time !== null) state.currentTime = time;
 
   const hostJump = normalizeHostJump(value.hostJump);
   if (hostJump) state.hostJump = hostJump;
@@ -295,6 +302,22 @@ function normalizeFiniteNumber(value, fieldName, min, max) {
     throw new HttpError(400, `${fieldName} must be a finite number`);
   }
   return Math.min(max, Math.max(min, number));
+}
+
+// `currentTime` is the one field a client is allowed to be unsure about: it sends
+// `null` when the player cannot report a position yet (a swap mid-episode). The
+// last known value is kept in that case — see the note in updateState. Anything
+// else non-finite is still treated as a client bug.
+function normalizeCurrentTime(value, previous) {
+  const MAX_SEC = 60 * 60 * 24;
+  if (value === null) {
+    const last = previous && previous.currentTime;
+    if (typeof last === "number" && Number.isFinite(last)) {
+      return Math.min(MAX_SEC, Math.max(0, last));
+    }
+    return null;
+  }
+  return normalizeFiniteNumber(value, "currentTime", 0, MAX_SEC);
 }
 
 function parseState(value) {

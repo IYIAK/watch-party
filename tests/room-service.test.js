@@ -37,6 +37,54 @@ test("createRoom returns a host token and persists host participant", async () =
   assert.equal(room.host_token_hash, `hash(${result.hostToken})`);
 });
 
+test("a null currentTime means \"position unknown\" and keeps the last known one", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: 1800, duration: 3600, paused: false }
+  });
+
+  // The player was swapped mid-episode, so the client cannot report a position.
+  // Sending 0 here used to overwrite the row and drag the whole room back to the
+  // start of the video.
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: null, duration: 3600, paused: false }
+  });
+
+  const state = await service.getState(host.roomId);
+  assert.equal(state.participants[0].state.currentTime, 1800);
+
+  // ...and the real position still wins once the player can report again.
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: 5, duration: 3600, paused: false }
+  });
+  const after = await service.getState(host.roomId);
+  assert.equal(after.participants[0].state.currentTime, 5);
+});
+
+test("a null currentTime with nothing to preserve leaves the position absent", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+
+  // A participant that has never reported a position: the panel must be able to
+  // tell "unknown" (rendered as —) from a real 0:00.
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: null, duration: 0, paused: true }
+  });
+
+  const state = await service.getState(host.roomId);
+  assert.equal("currentTime" in state.participants[0].state, false);
+});
+
 test("joinRoom adds a participant whose state appears in getState", async () => {
   const { service } = makeService();
   const host = await service.createRoom({ displayName: "Alice" });
