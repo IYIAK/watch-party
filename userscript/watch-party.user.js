@@ -1776,11 +1776,12 @@
     syncOwner.onChange((info) => {
       const room = roomStore.get();
       if (!room) return;
-      if (!syncOwner.isOwner(room.roomId)) {
-        releaseReporting("另一个标签接管（" + ((info && info.via) || "通知") + "）");
-        return;
-      }
-      onUpdate(lastRoomState);
+      // Still ours: nothing to do. This branch is also reached for our own writes
+      // (managers may report them too, and the heartbeat writes every few seconds),
+      // so it must stay free of side effects — re-rendering the panel here would
+      // rebuild it every heartbeat.
+      if (syncOwner.isOwner(room.roomId)) return;
+      releaseReporting("另一个标签接管（" + ((info && info.via) || "通知") + "）");
     });
 
     // Stop reporting, keep showing the room. Shared by the notification path and
