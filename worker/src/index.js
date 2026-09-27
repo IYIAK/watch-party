@@ -38,6 +38,11 @@ export default {
         return json(await service.updateState(route.roomId, body));
       }
 
+      if (route.name === "leaveRoom") {
+        const body = await readJson(request);
+        return json(await service.leaveRoom(route.roomId, body));
+      }
+
       if (route.name === "getState") {
         return json(await service.getState(route.roomId));
       }
@@ -61,6 +66,11 @@ function matchRoute(method, pathname) {
   const joinMatch = pathname.match(/^\/rooms\/([^/]+)\/join$/);
   if (method === "POST" && joinMatch) {
     return { name: "joinRoom", roomId: joinMatch[1] };
+  }
+
+  const leaveMatch = pathname.match(/^\/rooms\/([^/]+)\/leave$/);
+  if (method === "POST" && leaveMatch) {
+    return { name: "leaveRoom", roomId: leaveMatch[1] };
   }
 
   const stateMatch = pathname.match(/^\/rooms\/([^/]+)\/state$/);

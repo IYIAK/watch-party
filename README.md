@@ -352,8 +352,9 @@ npm test
 | --- | --- |
 | `POST /rooms` | 创建房间。返回 `roomId`、`participantId`、`hostToken`。 |
 | `POST /rooms/:roomId/join` | 加入房间。返回 `roomId`、`participantId`、`role`。 |
+| `POST /rooms/:roomId/leave` | 离开房间：删除该参与者的记录，避免下次再加入时留下一个「已离线」的幽灵成员。重复调用不算错误。 |
 | `POST /rooms/:roomId/state` | 上报本地播放状态。房主需带上 `hostToken`。 |
-| `GET /rooms/:roomId/state` | 拉取房间内所有参与者的状态。 |
+| `GET /rooms/:roomId/state` | 拉取房间内所有参与者的状态。**超过 5 分钟没上报的参与者会被自动剔除**（关标签/崩溃兜底；正常后台标签约每分钟仍会上报一次）。 |
 
 错误码：`400` 负载非法，`403` 房主 token 无效，`404` 房间不存在。
 

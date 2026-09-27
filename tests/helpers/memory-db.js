@@ -77,6 +77,13 @@ class Statement {
       return { success: true };
     }
 
+    if (sql.startsWith("DELETE FROM participants WHERE id = ? AND room_id = ?")) {
+      const [id, room_id] = p;
+      const row = participants.get(id);
+      if (row && row.room_id === room_id) participants.delete(id);
+      return { success: true };
+    }
+
     if (sql.startsWith("UPDATE rooms SET updated_at")) {
       const [updated_at, id] = p;
       const row = rooms.get(id);

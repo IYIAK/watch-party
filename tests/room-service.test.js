@@ -85,6 +85,50 @@ test("a null currentTime with nothing to preserve leaves the position absent", a
   assert.equal("currentTime" in state.participants[0].state, false);
 });
 
+test("leaving a room removes the participant row", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+  const guest = await service.joinRoom(host.roomId, { displayName: "Bob" });
+
+  assert.equal((await service.getState(host.roomId)).participants.length, 2);
+
+  await service.leaveRoom(host.roomId, { participantId: guest.participantId });
+
+  const after = await service.getState(host.roomId);
+  assert.equal(after.participants.length, 1);
+  assert.equal(after.participants[0].participantId, host.participantId);
+
+  // Leaving twice, or leaving a room we are not in, must not be an error: the
+  // client fires this off without waiting for it.
+  await service.leaveRoom(host.roomId, { participantId: guest.participantId });
+  assert.equal((await service.getState(host.roomId)).participants.length, 1);
+});
+
+test("a participant silent for a long stretch drops out of the roster", async () => {
+  // A tab that was closed or crashed never says goodbye, so getState drops rows
+  // that have not reported for minutes instead of showing them as "offline"
+  // forever. The clock is injectable, so this is deterministic.
+  let clock = Date.parse("2026-06-30T12:00:00.000Z");
+  const { service } = makeService({ options: { now: () => new Date(clock).toISOString() } });
+
+  const host = await service.createRoom({ displayName: "Alice" });
+  const guest = await service.joinRoom(host.roomId, { displayName: "Bob" });
+
+  // Well past the TTL, but the host keeps reporting (a backgrounded tab still
+  // reports about once a minute).
+  clock += 6 * 60 * 1000;
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: 10, duration: 600, paused: false }
+  });
+
+  const state = await service.getState(host.roomId);
+  assert.equal(state.participants.length, 1);
+  assert.equal(state.participants[0].participantId, host.participantId);
+  assert.notEqual(host.participantId, guest.participantId);
+});
+
 test("joinRoom adds a participant whose state appears in getState", async () => {
   const { service } = makeService();
   const host = await service.createRoom({ displayName: "Alice" });

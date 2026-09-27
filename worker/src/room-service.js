@@ -140,6 +140,28 @@ export function createRoomService(db, options = {}) {
     return { ok: true };
   }
 
+  // Leaving is explicit and best-effort. Closing a tab cannot reliably report it —
+  // and pretending it could would make a plain reload look like a departure — so
+  // getState also drops participants that have been silent for a long time.
+  async function leaveRoom(roomId, input = {}) {
+    const cleanRoomId = normalizeRoomId(roomId);
+    const room = await requireRoom(cleanRoomId);
+    const participantId = normalizeId(input.participantId, "participantId", LIMITS.participantId);
+    const participant = await getParticipant(room.id, participantId);
+    // Leaving twice is not an error, and neither is leaving a room we are no longer
+    // in: the client should not have to care.
+    if (!participant) return { ok: true };
+
+    await db
+      .prepare("DELETE FROM participants WHERE id = ? AND room_id = ?")
+      .bind(participant.id, room.id)
+      .run();
+
+    await touchRoom(room.id, now());
+
+    return { ok: true };
+  }
+
   async function getState(roomId) {
     const cleanRoomId = normalizeRoomId(roomId);
     const room = await requireRoom(cleanRoomId);
@@ -153,13 +175,24 @@ export function createRoomService(db, options = {}) {
       .bind(room.id)
       .all();
 
-    const participants = (result.results || []).map((row) => ({
-      participantId: row.id,
-      displayName: row.display_name,
-      role: row.role,
-      state: parseState(row.state_json),
-      updatedAt: row.updated_at
-    }));
+    // A participant that has been silent for a long stretch is gone (tab closed,
+    // browser crashed, laptop asleep). Dropping them here keeps the roster free of
+    // "offline ghosts" without needing a cleanup job. Leaving a room explicitly
+    // removes the row outright; this is the safety net for everything else.
+    const cutoff = Date.parse(now()) - PARTICIPANT_TTL_MS;
+    const participants = (result.results || [])
+      .filter((row) => {
+        const seen = Date.parse(row.updated_at);
+        // An unparseable timestamp is kept: better a stale row than a hidden member.
+        return Number.isNaN(seen) || seen >= cutoff;
+      })
+      .map((row) => ({
+        participantId: row.id,
+        displayName: row.display_name,
+        role: row.role,
+        state: parseState(row.state_json),
+        updatedAt: row.updated_at
+      }));
 
     return {
       roomId: room.id,
@@ -202,6 +235,7 @@ export function createRoomService(db, options = {}) {
     createRoom,
     joinRoom,
     updateState,
+    leaveRoom,
     getState
   };
 }
@@ -241,6 +275,8 @@ function normalizeOptionalString(value, fieldName, maxLength, truncate) {
   }
   return text;
 }
+
+const PARTICIPANT_TTL_MS = 5 * 60 * 1000; // see getState
 
 function normalizePlaybackState(value, previous) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {

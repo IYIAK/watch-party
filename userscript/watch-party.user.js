@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.5
+// @version      0.10.6
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -562,6 +562,11 @@
       createRoom: (displayName) => request("POST", "/rooms", { displayName }),
       joinRoom: (roomId, displayName) =>
         request("POST", `/rooms/${encodeURIComponent(roomId)}/join`, { displayName }),
+      // Tell the server we are gone, so coming back does not leave an "offline
+      // ghost" of ourselves in the roster. Best effort: leaving must not depend on
+      // the network, and the server also drops long-silent participants anyway.
+      leaveRoom: (roomId, participantId) =>
+        request("POST", `/rooms/${encodeURIComponent(roomId)}/leave`, { participantId }, { silent: true }),
       reportState: (roomId, payload) =>
         request("POST", `/rooms/${encodeURIComponent(roomId)}/state`, payload),
       fetchState: (roomId) => request("GET", `/rooms/${encodeURIComponent(roomId)}/state`),
@@ -1959,6 +1964,12 @@
       // the normal view and the 「同步当前视频」 prompt.
       isActive: () => running,
       ownerLooksAbandoned: () => syncOwner.looksAbandoned(),
+      // Which tab currently owns sync for this room, or null when nobody does (the
+      // state a member is in right after joining).
+      ownerTabId: () => {
+        const room = roomStore.get();
+        return room ? syncOwner.ownerOf(room.roomId) : null;
+      },
       reportNow,
       fetchNow,
       markManualSeek,
@@ -2841,16 +2852,21 @@
         })
         .join("");
 
-      // Sync is never taken over automatically, so a tab that is not the chosen
-      // one always offers the button. When the recorded owner has gone quiet for a
-      // long time (closed, crashed — but *not* merely backgrounded, which is why
-      // the threshold is minutes), say so instead of claiming it is still running.
+      // Sync is never taken over automatically, so a tab that is not the chosen one
+      // always offers the button. The wording has to tell three states apart:
+      // nobody owns sync (where a member lands right after joining), somebody else
+      // owns it, or the recorded owner has been silent for minutes (closed or
+      // crashed — but *not* merely backgrounded, which is why that threshold is
+      // minutes).
+      const ownerTab = active ? null : handlers.ownerTabId();
       const standbyBlock = active
         ? ""
         : `<div id="wp-standby">${
-            handlers.ownerLooksAbandoned()
-              ? "上次同步的标签似乎已关闭。"
-              : "同步正在另一个标签进行。"
+            !ownerTab
+              ? "本标签还没有在同步。"
+              : handlers.ownerLooksAbandoned()
+                ? "上次同步的标签似乎已关闭。"
+                : "同步正在另一个标签进行。"
           }
             <button class="action" id="wp-activate">同步当前视频</button></div>`;
 
@@ -3046,6 +3062,7 @@
     getRoomState: () => syncEngine.getRoomState(),
     isActive: () => syncEngine.isActive(),
     ownerLooksAbandoned: () => syncEngine.ownerLooksAbandoned(),
+    ownerTabId: () => syncEngine.ownerTabId(),
     getMismatchHost: () => syncEngine.getMismatchHost(),
     getSeekRequest: () => syncEngine.getSeekRequest(),
     acceptSeekRequest: (id) => syncEngine.acceptSeekRequest(id),
@@ -3134,6 +3151,11 @@
       }
     },
     leave() {
+      const room = roomStore.get();
+      // Best effort, fire-and-forget: the server removes our row so that coming back
+      // later does not leave an "offline ghost" of ourselves next to the new one.
+      // Leaving must never depend on the network succeeding.
+      if (room) apiClient.leaveRoom(room.roomId, room.participantId).catch(() => {});
       // Also releases the cross-tab lock, so another tab can take over cleanly.
       syncEngine.leaveRoom();
       roomStore.clear();
@@ -3224,6 +3246,8 @@
 
     GM_registerMenuCommand("打开一起看", () => panelUi.open());
     GM_registerMenuCommand("离开房间", () => {
+      const room = roomStore.get();
+      if (room) apiClient.leaveRoom(room.roomId, room.participantId).catch(() => {});
       syncEngine.leaveRoom();
       roomStore.clear();
       settings.update({ forceSync: false });
