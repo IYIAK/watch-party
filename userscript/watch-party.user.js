@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.1
+// @version      0.10.2
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -62,6 +62,10 @@
     ownerKey: "watch-party-sync-owner-v1",
     lockHeartbeatMs: 3000, // how often the owner stamps its record (local writes only)
     ownerStaleMs: 180000, // 3 min: generous, because hidden-tab timers are throttled
+    // How long a loading tab waits to hear whether another live tab already holds
+    // its tab id (see syncOwner.confirmTabIdentity). A same-origin broadcast round
+    // trip is ~1ms; this only has to cover a busy tab.
+    tabProbeMs: 120,
     // One-shot handoff for 「跳转到一起看的视频」: the tab we open for the shared
     // video is the one the user meant, so it may take over. A plain new tab never
     // matches it and stays passive.
@@ -658,6 +662,83 @@
       }
     }
 
+    // ---- is this tab really the one that was chosen? -------------------------
+    // A duplicated tab ("duplicate tab", a same-origin ctrl+click, window.open from
+    // a page) inherits a *copy* of sessionStorage, so it would believe it is the tab
+    // the user picked — and then two tabs report for the room, which is exactly the
+    // mess this whole module exists to prevent. Ask whether a live tab already holds
+    // this id: if one answers, this page is a copy, and it takes a fresh id, which
+    // also makes it passive.
+    const CHANNEL = "watch-party-tabs-v1";
+    const channel = typeof BroadcastChannel === "function" ? new BroadcastChannel(CHANNEL) : null;
+    let settled = false; // done asking, so it is safe to answer other tabs
+    let leaving = false; // unloading: must not answer, or our own reload looks like a copy
+    let onDuplicate = null;
+
+    if (channel) {
+      try {
+        channel.addEventListener("message", (ev) => {
+          const msg = ev.data;
+          if (!msg || msg.tabId !== tabId) return;
+          if (msg.type === "who-has") {
+            // Only a settled, still-loaded tab may answer: one that is itself still
+            // asking has not taken this id for real, and one that is unloading would
+            // make its own reload look like a duplicate.
+            if (settled && !leaving) channel.postMessage({ type: "have", tabId });
+          } else if (msg.type === "have" && onDuplicate) {
+            onDuplicate();
+          }
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+
+    // Resolves true when the id is really ours (a reload), false when another live
+    // tab already holds it (we are a copy, and our id has been replaced).
+    function confirmTabIdentity(timeoutMs) {
+      if (settled || !channel) {
+        settled = true;
+        return Promise.resolve(true);
+      }
+      return new Promise((resolve) => {
+        let done = false;
+        const finish = (mine) => {
+          if (done) return;
+          done = true;
+          onDuplicate = null;
+          settled = true;
+          resolve(mine);
+        };
+        onDuplicate = () => {
+          if (done) return;
+          tabId = newId();
+          try {
+            sessionStorage.setItem(TAB_KEY, tabId);
+          } catch {
+            /* ignore */
+          }
+          finish(false);
+        };
+        try {
+          channel.postMessage({ type: "who-has", tabId });
+        } catch {
+          /* ignore */
+        }
+        setTimeout(() => finish(true), timeoutMs);
+      });
+    }
+
+    window.addEventListener("pagehide", (ev) => {
+      // Parked in the back/forward cache: still alive, keep answering. Leaving for
+      // real: stop, so a reload of this very tab is not mistaken for a copy.
+      if (ev && ev.persisted) return;
+      leaving = true;
+    });
+    window.addEventListener("pageshow", (ev) => {
+      if (ev && ev.persisted) leaving = false;
+    });
+
     let heartbeatTimer = null;
     let onChanged = () => {};
 
@@ -704,6 +785,9 @@
       isOwner,
       ownerOf,
       current: read,
+      // See confirmTabIdentity: a duplicated tab has to notice it is a copy before
+      // it may inherit anything.
+      confirmTabIdentity,
       // Explicit takeover: from now on this tab reports, and every other tab
       // (any origin) sees it and stands down.
       claim(roomId) {
@@ -1701,16 +1785,26 @@
     // just pressed 「跳转到一起看的视频」 in another tab and this is the page that
     // opened. Any other tab stays passive: it shows the room and waits to be
     // chosen, and it never inherits the job.
-    function activateOnLoad() {
+    async function activateOnLoad() {
       const room = roomStore.get();
       if (!room) return;
-      if (syncOwner.takeHandoff(room.roomId, location.href)) {
+      // Only a tab that believes it is the chosen one has to prove it: everything
+      // else is passive anyway, and waiting would just delay its panel.
+      if (syncOwner.isOwner(room.roomId)) {
+        const reallyMine = await syncOwner.confirmTabIdentity(CONFIG.tabProbeMs);
+        if (!reallyMine) {
+          // A duplicated tab copied our identity. The probe already replaced the id,
+          // so this page is simply a passive viewer now — the original keeps syncing.
+          console.info("[一起看] 这个标签是复制出来的副本，已让出同步（原标签继续）");
+          startPassivePoll();
+          onUpdate(lastRoomState);
+          return;
+        }
         activate();
         return;
       }
-      if (syncOwner.isOwner(room.roomId)) {
-        start();
-        onUpdate(lastRoomState);
+      if (syncOwner.takeHandoff(room.roomId, location.href)) {
+        activate();
         return;
       }
       startPassivePoll();

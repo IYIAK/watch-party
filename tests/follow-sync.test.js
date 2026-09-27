@@ -262,6 +262,44 @@ test("an abandoned owner is only ever a hint", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Cross-tab: a duplicated tab must not inherit the job
+// ---------------------------------------------------------------------------
+// A duplicated tab ("duplicate tab", a same-origin ctrl+click, window.open) gets a
+// *copy* of sessionStorage, so it would believe it is the chosen tab and report as
+// well. syncOwner asks the other tabs; these mirrors pin down who may answer and
+// what a heard answer means.
+
+function shouldAnswer(msg, selfId, settled, leaving) {
+  if (!msg || msg.tabId !== selfId) return false;
+  return msg.type === "who-has" && settled && !leaving;
+}
+
+// Mirrors syncOwner.confirmTabIdentity's verdict.
+function identityAfter(answered) {
+  return answered ? "copy" : "mine";
+}
+
+test("only a settled, still-loaded tab answers the identity probe", () => {
+  const probe = { type: "who-has", tabId: "t1" };
+  assert.equal(shouldAnswer(probe, "t1", true, false), true);
+  // Still asking itself: it has not really taken this id yet.
+  assert.equal(shouldAnswer(probe, "t1", false, false), false);
+  // Unloading: its own reload must not look like a duplicate.
+  assert.equal(shouldAnswer(probe, "t1", true, true), false);
+  // Somebody else's id, or not a probe.
+  assert.equal(shouldAnswer(probe, "t2", true, false), false);
+  assert.equal(shouldAnswer({ type: "have", tabId: "t1" }, "t1", true, true), false);
+  assert.equal(shouldAnswer(null, "t1", true, false), false);
+});
+
+test("a heard answer means this page is the copy", () => {
+  // Copy: replace the id (which also makes it passive) and let the original run.
+  assert.equal(identityAfter(true), "copy");
+  // Nothing answered: a plain reload of the chosen tab keeps syncing.
+  assert.equal(identityAfter(false), "mine");
+});
+
+// ---------------------------------------------------------------------------
 // Co-op: waiting for a stalled participant
 // ---------------------------------------------------------------------------
 
