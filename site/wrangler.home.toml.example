@@ -1,12 +1,12 @@
-# 教程页（guide）的静态 Worker 配置模板。这里没有任何 API 逻辑，只托管构建产物
+# 首页（home）的静态 Worker 配置模板。这里没有任何 API 逻辑，只托管构建产物
 # 与脚本本体，使安装链接可从直接访问的域名打开。
 #
-# 准备：cp site/wrangler.toml.example site/wrangler.toml   # 填入你自己的域名
-#       cp site/config.example.json site/config.json       # 填入你自己的地址
-# 部署：npm run site:deploy:guide   （会先执行 site:build）
+# 准备：cp site/wrangler.home.toml.example site/wrangler.home.toml   # 填入你自己的域名
+#       cp site/config.example.json site/config.json                # 填入你自己的地址
+# 部署：npm run site:deploy:home   （会先执行 site:build）
 #
 # 静态资源请求免费（不会执行 Worker 脚本），因此不占用 API Worker 的请求配额。
-name = "video-sync-site"
+name = "watch-party-home"
 compatibility_date = "2026-06-30"
 
 # TOML 语法：顶层键必须写在任何 [table] 之前。若把 routes 放到 [assets] 之后，
@@ -14,10 +14,10 @@ compatibility_date = "2026-06-30"
 #
 # `wrangler deploy` 会自动创建 DNS 记录与证书（域名所在 zone 在同一账号内）。
 routes = [
-  { pattern = "guide.example.com", custom_domain = true }
+  { pattern = "home.example.com", custom_domain = true }
 ]
 
 [assets]
-directory = "./dist/guide"
-# 未知路径一律返回教程页，而不是裸 404。
+directory = "./dist/home"
+# 未知路径一律返回首页，而不是裸 404。
 not_found_handling = "single-page-application"

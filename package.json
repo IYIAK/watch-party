@@ -6,6 +6,8 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "site:build": "node site/build.mjs",
-    "site:deploy": "node site/build.mjs && npx wrangler deploy --config site/wrangler.toml"
+    "site:deploy:guide": "node site/build.mjs && npx wrangler deploy --config site/wrangler.toml",
+    "site:deploy:home": "node site/build.mjs && npx wrangler deploy --config site/wrangler.home.toml",
+    "site:deploy": "npm run site:deploy:guide && npm run site:deploy:home"
   }
 }

@@ -67,7 +67,7 @@
 | `worker/wrangler.toml.example` | 复制为 `wrangler.toml` 并填入 D1 数据库 id。 |
 | `tests/` | 基于 `node:test` 的后端测试（含内存版 D1 桩）。 |
 | `fixtures/` | 本地适配器测试用的 HTML 页面。 |
-| `site/` | 安装页（纯静态 Worker）。页面由 `docs/安装教程.md` 自动生成，并把脚本本体一起发布。 |
+| `site/` | 两个纯静态页面：首页与教程页。教程页由 `docs/安装教程.md` 自动生成，两个页面共用同一套外壳，并把脚本本体一并发布。 |
 | `docs/` | 设计规格文档与本说明。 |
 
 ---
@@ -291,26 +291,45 @@ const CONFIG = {
 
 ## 部署安装页（可选）
 
-`site/` 是一个**纯静态 Worker**，把安装教程做成网页，并顺带发布脚本本体，于是：
+`site/` 构建出两个纯静态页面，由两个只托管静态资源的 Worker 分别部署：
 
-- 打开网页就能看教程，点 **「一键安装脚本」** 直接进 Tampermonkey 安装流程
-- 点 **「复制脚本代码」** 一键复制全文（可手动粘贴到油猴）
-- 点 **「复制安装地址」** 把 `.../watch-party.user.js` 发给朋友，他点开就能装
+- **首页**（落地页）：构建产物在 `site/dist/home/`，Worker 名为 `watch-party-home`，配置文件是 `site/wrangler.home.toml`。
+- **教程页**：内容由 `docs/安装教程.md` 自动生成，构建产物在 `site/dist/guide/`，Worker 名为 `video-sync-site`，配置文件是 `site/wrangler.toml`。
 
-页面内容由 `docs/安装教程.md` **自动生成**，所以文档改了网页就跟着变，不会出现两份内容对不上。
+两个页面共用同一套外壳，并把脚本本体一并发布，于是：
+
+- 打开网页就能看教程，点 **「一键安装脚本」** 直接进入油猴（Tampermonkey）的安装流程
+- 点 **「复制脚本代码」** 复制全文，可手动粘贴到油猴（Tampermonkey）
+- 点 **「复制安装地址」** 把 `.../watch-party.user.js` 发给朋友，对方点开即可安装
+
+页面内容由 `docs/安装教程.md` 自动生成，文档改动后重新构建，网页就跟着变，不会出现两份内容对不上。
+
+首次部署先复制模板并填入自己的地址：
 
 ```bash
-cp site/wrangler.toml.example site/wrangler.toml   # 填你自己的域名
-cp site/config.example.json site/config.json       # 填你自己的后端主机名
-npm run site:build     # 生成 site/public/（该目录不入库）
-npm run site:deploy    # 生成 + 部署
+cp site/wrangler.toml.example site/wrangler.toml             # 填入你的教程页域名
+cp site/wrangler.home.toml.example site/wrangler.home.toml   # 填入你的首页域名
+cp site/config.example.json site/config.json                 # 填入你的后端地址与两个页面地址
 ```
 
-`site/wrangler.toml`（**不入库**，只在你本地）里的 `routes` 决定域名。**注意 TOML 语法：顶层键必须写在任何 `[table]` 之前**，否则 `routes` 会被当成 `[assets]` 的字段而静默失效（只部署到 `*.workers.dev`，不绑域名）。
+`site/wrangler.toml`、`site/wrangler.home.toml` 与 `site/config.json` 都**不入库**，真实域名只保存在本地，仓库里只有占位模板。
 
-`site/config.json`（同样**不入库**）里的 `apiHost` 会在构建时注入到发布出去的脚本里 —— 所以仓库里只有占位地址，别人 clone 下来也拿不到你的部署信息。
+四个 npm 脚本：
 
-静态资源的请求是**免费且不计入** Worker 请求配额（它们不会真正执行 Worker 脚本），所以这个站点不会挤占同步服务的每日额度。
+```bash
+npm run site:build           # 生成 site/dist/（该目录不入库）
+npm run site:deploy:guide    # 生成 + 部署教程页
+npm run site:deploy:home     # 生成 + 部署首页
+npm run site:deploy          # 依次部署两个页面
+```
+
+**注意 TOML 语法：顶层键（`name`、`compatibility_date`、`routes`）必须写在任何 `[table]` 之前**，否则 `routes` 会被当成 `[assets]` 的字段而静默失效，只部署到 `*.workers.dev`、不绑域名。教程页的 `routes` 里写着两条域名，首页的 `routes` 里写着一条，都要保持在 `[assets]` 上方。
+
+教程页的 Worker 保留了原有域名，并新增一个域名并列指向同一个页面。已经发出去的安装链接必须继续可用，改动域名会让那些链接失效。
+
+`site/config.json` 里的 `apiHost`、`homeUrl`、`guideUrl` 会在构建时注入到页面与发布出去的脚本里，所以别人 clone 下来也拿不到你的部署信息。
+
+静态资源的请求**免费且不计入** Worker 请求配额（它们不会真正执行 Worker 脚本），所以这两个页面不会挤占同步服务的每日额度。
 
 ---
 

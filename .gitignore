@@ -1,8 +1,9 @@
 .comate/
 .wrangler/
-site/public/
+site/dist/
 # 本地部署配置，含真实的 D1 database_id；模板见 worker/wrangler.toml.example
 worker/wrangler.toml
 # 安装页的本地部署配置与私有设置（真实域名）；模板见各自的 .example 文件
 site/wrangler.toml
+site/wrangler.home.toml
 site/config.json
