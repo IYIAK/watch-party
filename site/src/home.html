@@ -10,29 +10,31 @@
 -->
 <div class="home">
 
-  <!-- 1 · Hero. The most characteristic thing about this product is two timelines
-       ending up in the same place, so that is what the first screen shows. -->
+  <!-- 1 · Hero. The product's own promise is two timelines landing on the same
+       second, so that is the first thing the page shows. -->
   <section class="hero">
     <h1>和朋友一起看，进度自动对齐</h1>
     <p class="lede">房主暂停，成员端一起暂停；房主拖动进度条，成员端跟着跳；有人卡顿，全房间一起等。</p>
 
 {{ACTIONS}}
 
-    <figure class="sync" role="img" aria-label="房主与成员的播放进度最终对齐在同一时刻">
-      <div class="track">
-        <span class="ph host"></span>
-        <span class="ph guest"></span>
-      </div>
-      <figcaption>
-        <span class="who host">房主 <b>12:34</b></span>
-        <span class="who guest">成员 <b>12:34</b></span>
-      </figcaption>
+    <figure class="sync" role="img" aria-label="房主的播放进度为 12:34，成员的进度随后对齐到同一位置">
+      <span class="player host">
+        <span class="play" aria-hidden="true"></span>
+        <span class="who">房主</span>
+        <span class="bar"><span class="fill host">12:34</span></span>
+      </span>
+      <span class="player guest">
+        <span class="play" aria-hidden="true"></span>
+        <span class="who">成员</span>
+        <span class="bar"><span class="fill guest">12:34</span></span>
+      </span>
     </figure>
   </section>
 
-  <!-- 2 · The path. A real four-step sequence, so the rail's ticks carry order. -->
+  <!-- 2 · The path. A real five-step sequence, so the rail's ticks carry order. -->
   <section class="path">
-    <h2>四步开始一起看</h2>
+    <h2>五步开始一起看</h2>
     <ol class="rail">
 
       <li>
@@ -47,13 +49,31 @@
       </li>
 
       <li>
+        <h3>安装脚本</h3>
+        <p>点击页面上方的「一键安装脚本」，按提示完成安装。若浏览器未弹出安装页，改为点击「复制脚本代码」，再到油猴管理面板新建脚本并粘贴内容。</p>
+      </li>
+
+      <li>
         <h3>在视频网站匹配域名</h3>
         <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后脚本才会在该网站生效。</p>
         <div class="demo" aria-hidden="true">
           <div class="menu">
-            <div class="menu-row on">匹配当前域名（www.bilibili.com）</div>
-            <div class="menu-row">匹配上级域名（bilibili.com，含所有子域）</div>
-            <div class="menu-row">查看已匹配域名</div>
+            <div class="menu-head">
+              <span class="menu-name">一起看 · 视频同步</span>
+              <span class="menu-switch"></span>
+            </div>
+            <div class="menu-row on">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
+              <span>匹配当前域名（www.bilibili.com）</span>
+            </div>
+            <div class="menu-row">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
+              <span>匹配上级域名（bilibili.com，含所有子域）</span>
+            </div>
+            <div class="menu-row">
+              <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
+              <span>查看已匹配域名</span>
+            </div>
           </div>
         </div>
       </li>
@@ -71,7 +91,9 @@
               <div class="mini-ghost">加入</div>
             </div>
           </div>
-          <div class="mini-fab"></div>
+          <span class="mini-fab">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16.5 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </span>
         </div>
       </li>
 
