@@ -180,8 +180,9 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
    -------------------------------------------------------------------------- */
 .page-home {
   --host:#2b6cff;                        /* the host's timeline = the brand blue */
-  --guest:#B4690E;                       /* the member's — deep enough for white text */
-  --host-soft:rgba(43,108,255,.16);
+  --host-ink:#1d4ed8;                    /* readable on white for its timecode */
+  --guest:#F59E0B;                       /* the member's — a clean amber, no text on it */
+  --guest-ink:#B45309;                   /* its timecode, dark enough to read */
   --track:#eef1f7;
 }
   /* Display voice: HarmonyOS Sans where it exists, YaHei otherwise — both are
@@ -212,24 +213,32 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
      dissolve — the member's row fades and blurs out at the aligned position and
      resolves back in at its starting position, so nothing ever snaps visibly.
      This is the only animated element on the page. */
-  .home .sync { display:flex; flex-direction:column; gap:10px; margin:26px 0 0; }
+  .home .sync { display:flex; flex-direction:column; gap:14px; margin:28px 0 0; }
   .home .player { display:flex; align-items:center; gap:11px; }
-  .home .play { flex:0 0 auto; width:0; height:0; border-style:solid; border-width:6px 0 6px 10px;
+  .home .play { flex:0 0 auto; width:0; height:0; border-style:solid; border-width:5px 0 5px 8px;
     border-color:transparent transparent transparent var(--dim); }
   .home .player.host .play { border-left-color:var(--host); }
   .home .player.guest .play { border-left-color:var(--guest); }
-  .home .who { flex:0 0 3.2em; font-size:13.5px; color:var(--dim); }
-  .home .bar { position:relative; flex:1 1 auto; height:22px; border-radius:99px;
-    background:var(--track); overflow:hidden; }
-  .home .fill { position:absolute; inset:0 auto 0 0; border-radius:99px; display:flex;
-    align-items:center; justify-content:flex-end; padding-right:9px; color:#fff;
-    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:11.5px;
-    font-variant-numeric:tabular-nums; }
-  /* the leading edge trails off instead of stopping dead */
-  .home .fill::after { content:""; position:absolute; right:0; top:0; bottom:0; width:16px;
-    border-radius:99px; background:linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,.5)); }
-  .home .fill.host { width:74%; background:var(--host); box-shadow:0 0 0 3px var(--host-soft); }
-  .home .fill.guest { width:74%; background:var(--guest); animation:catchup 6.2s ease-in-out infinite; }
+  .home .who { flex:0 0 3em; font-size:13px; color:var(--dim); }
+  /* Thin enough to read as a scrubber, and the glow must not be clipped */
+  .home .bar { position:relative; flex:1 1 auto; height:8px; border-radius:99px;
+    background:var(--track); }
+  .home .fill { position:absolute; left:0; top:0; bottom:0; border-radius:99px; }
+  /* the leading edge: a bright head with a halo, so the bar glows where it moves */
+  .home .fill::after { content:""; position:absolute; right:-2px; top:50%; width:9px; height:9px;
+    margin-top:-4.5px; border-radius:50%; background:#fff;
+    box-shadow:0 0 0 2.5px currentColor, 0 0 12px 3px currentColor; }
+  .home .fill.host { width:74%; color:var(--host);
+    background:linear-gradient(90deg, #9dbcff, var(--host));
+    box-shadow:0 0 14px rgba(43,108,255,.45); }
+  .home .fill.guest { width:74%; color:var(--guest);
+    background:linear-gradient(90deg, #ffd08a, var(--guest));
+    box-shadow:0 0 14px rgba(245,158,11,.45);
+    animation:catchup 6.2s ease-in-out infinite; }
+  .home .at { flex:0 0 3.6em; text-align:right; color:var(--dim); font-size:12.5px;
+    font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-variant-numeric:tabular-nums; }
+  .home .player.host .at { color:var(--host-ink); }
+  .home .player.guest .at { color:var(--guest-ink); }
   @keyframes catchup {
     0%   { width:36%; opacity:0; filter:blur(3px); }
     6%   { opacity:1; filter:blur(0); }
