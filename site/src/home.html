@@ -1,56 +1,67 @@
 <!--
-  Body of the landing page (site/dist/home/index.html). This file is inserted
-  verbatim into the shared shell rendered by site/src/layout.mjs — no document
-  shell and no style/script block here, just the content inside main. Keep it
-  free of external stylesheets, scripts, fonts and images.
+  Body of the landing page (site/dist/home/index.html). Inserted verbatim into
+  the shell rendered by site/src/layout.mjs — no document shell, no style or
+  script block, and nothing external: the whole page must render with no network
+  requests beyond itself.
 
   The ACTIONS token (double-brace form, see layout.mjs) marks where the shell
-  drops its action row (install / copy-code / copy-url). renderPage() consumes
-  the token, so the row renders HERE — under the hero instead of above the h1 —
-  and the top-of-page row is suppressed. Never write that token twice in this
-  file: every occurrence would be replaced.
+  drops its action row (install / copy-code / copy-url). renderPage() consumes it,
+  so the row renders HERE, inside the hero. Never write it twice.
 -->
 <div class="home">
 
-  <!-- 1 · Hero -->
+  <!-- 1 · Hero. The most characteristic thing about this product is two timelines
+       ending up in the same place, so that is what the first screen shows. -->
   <section class="hero">
     <h1>和朋友一起看，进度自动对齐</h1>
-    <p>与朋友身处不同地方，也能观看同一个视频：房主暂停时，成员端同步暂停；房主拖动进度条时，成员端同步跳转；有人网络卡顿时，全房间一起等待。</p>
-  </section>
+    <p class="lede">房主暂停，成员端一起暂停；房主拖动进度条，成员端跟着跳；有人卡顿，全房间一起等。</p>
 
 {{ACTIONS}}
 
-  <!-- 2 · 先装油猴 -->
-  <section class="card">
-    <h2>先装油猴（Tampermonkey）</h2>
-    <p>油猴（Tampermonkey）是浏览器的脚本管理器，本脚本需通过它运行。安装油猴后，「一键安装脚本」方可生效。</p>
-    <div class="stores">
-      <a class="store" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Chrome 商店</a>
-      <a class="store" href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">Edge 加载项</a>
-      <a class="store" href="https://addons.mozilla.org/firefox/addon/tampermonkey/" target="_blank" rel="noopener">Firefox 附加组件</a>
-    </div>
-    <p class="note">Chrome 商店在国内常无法访问，可改用 Edge 或 Firefox 的商店，也可在商店中搜索 Tampermonkey。完整图文步骤见 <a href="{{GUIDE_URL}}">安装教程</a>。</p>
+    <figure class="sync" role="img" aria-label="房主与成员的播放进度最终对齐在同一时刻">
+      <div class="track">
+        <span class="ph host"></span>
+        <span class="ph guest"></span>
+      </div>
+      <figcaption>
+        <span class="who host">房主 <b>12:34</b></span>
+        <span class="who guest">成员 <b>12:34</b></span>
+      </figcaption>
+    </figure>
   </section>
 
-  <!-- 3 · 装好之后怎么用 —— 真实的三步流程，所以用编号 -->
-  <section class="card">
-    <h2>装好之后怎么用</h2>
-    <div class="steps">
+  <!-- 2 · The path. A real four-step sequence, so the rail's ticks carry order. -->
+  <section class="path">
+    <h2>四步开始一起看</h2>
+    <ol class="rail">
 
-      <div class="step">
-        <div class="figure" aria-hidden="true">
+      <li>
+        <h3>安装油猴（Tampermonkey）</h3>
+        <p>油猴是浏览器的脚本管理器，本脚本需要它运行。三个商店任选其一。</p>
+        <p class="stores">
+          <a class="store" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Chrome 商店</a>
+          <a class="store" href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">Edge 加载项</a>
+          <a class="store" href="https://addons.mozilla.org/firefox/addon/tampermonkey/" target="_blank" rel="noopener">Firefox 附加组件</a>
+        </p>
+        <p class="note">Chrome 商店在国内常无法访问，可改用 Edge 或 Firefox 的商店，或在商店中搜索 Tampermonkey。</p>
+      </li>
+
+      <li>
+        <h3>在视频网站匹配域名</h3>
+        <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后脚本才会在该网站生效。</p>
+        <div class="demo" aria-hidden="true">
           <div class="menu">
             <div class="menu-row on">匹配当前域名（www.bilibili.com）</div>
             <div class="menu-row">匹配上级域名（bilibili.com，含所有子域）</div>
             <div class="menu-row">查看已匹配域名</div>
           </div>
         </div>
-        <h3><span class="step-n">1</span>在视频网站匹配域名</h3>
-        <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后该网站才会生效；点击油猴菜单里的「打开一起看」即可呼出面板。</p>
-      </div>
+      </li>
 
-      <div class="step">
-        <div class="figure" aria-hidden="true">
+      <li>
+        <h3>打开面板，创建房间</h3>
+        <p>点击油猴菜单里的「打开一起看」呼出面板，填写昵称后点击「创建房间」，得到一个 6 位房间码。</p>
+        <div class="demo" aria-hidden="true">
           <div class="mini-panel">
             <p class="mini-title">一起看</p>
             <div class="mini-input">你的昵称</div>
@@ -62,40 +73,38 @@
           </div>
           <div class="mini-fab"></div>
         </div>
-        <h3><span class="step-n">2</span>打开面板，创建房间</h3>
-        <p>点右下角的圆钮打开面板，填写昵称后点击「创建房间」，得到一个 6 位房间码。</p>
-      </div>
+      </li>
 
-      <div class="step">
-        <div class="figure" aria-hidden="true">
+      <li>
+        <h3>把房间码发给朋友</h3>
+        <p>对方装好同一份脚本后，在视频页输入房间码即可加入；之后由房主控制进度，双方自动对齐。</p>
+        <div class="demo" aria-hidden="true">
           <div class="mini-code">7 2 K 9 Q M</div>
           <div class="mini-people">
-            <div><span class="dot"></span>阿凯 · 12:34</div>
-            <div><span class="dot"></span>小林 · 12:33</div>
+            <div><span class="dot"></span>阿凯 <b>12:34</b></div>
+            <div><span class="dot"></span>小林 <b>12:33</b></div>
           </div>
         </div>
-        <h3><span class="step-n">3</span>把房间码发给朋友</h3>
-        <p>对方装好同一份脚本后，在视频页输入房间码即可加入；之后由房主控制进度，双方自动对齐。</p>
-      </div>
+      </li>
 
-    </div>
+    </ol>
   </section>
 
-  <!-- 4 · 它能做什么 -->
-  <section class="card">
+  <!-- 3 · What it does — a two-column list, deliberately without card chrome -->
+  <section class="facts">
     <h2>它能做什么</h2>
-    <div class="feats">
-      <div class="feat"><strong>进度自动对齐</strong><span>房主拖动进度条时，成员端同步跳转，误差通常在 0.3 秒以内。</span></div>
-      <div class="feat"><strong>播放/暂停同步跟随</strong><span>房主暂停时成员端同步暂停，房主播放时成员端同步继续。</span></div>
-      <div class="feat"><strong>缓冲时全房间等待</strong><span>有人缓冲时全房间自动暂停等待，房主可点击「不等了，继续播放」继续。</span></div>
-      <div class="feat"><strong>跨站观看同一内容</strong><span>页面地址不同也能观看同一内容，点击「强制同步」即按房主的进度播放。</span></div>
-      <div class="feat"><strong>同一浏览器仅一个标签页同步</strong><span>同一浏览器中只有一个标签页在同步，避免多个标签页相互冲突、来回拖动进度。</span></div>
-      <div class="feat"><strong>6 位房间码加入房间</strong><span>创建房间后获得 6 位房间码，将其发送给成员，输入即可加入；同步服务器地址已写入脚本。</span></div>
-    </div>
+    <dl class="pairs">
+      <div><dt>进度自动对齐</dt><dd>房主拖动进度条时，成员端同步跳转，误差通常在 0.3 秒以内。</dd></div>
+      <div><dt>播放与暂停同步跟随</dt><dd>房主暂停时成员端同步暂停，房主播放时成员端同步继续。</dd></div>
+      <div><dt>缓冲时全房间等待</dt><dd>有人缓冲时全房间自动暂停等待，房主可点击「不等了，继续播放」继续。</dd></div>
+      <div><dt>跨站观看同一内容</dt><dd>页面地址不同也能观看同一内容，点击「强制同步」即按房主的进度播放。</dd></div>
+      <div><dt>同一浏览器仅一个标签页同步</dt><dd>避免多个标签页相互冲突、来回拖动进度。</dd></div>
+      <div><dt>6 位房间码加入房间</dt><dd>创建房间后获得房间码，将其发送给成员，输入即可加入；同步服务器地址已写入脚本。</dd></div>
+    </dl>
   </section>
 
-  <!-- 5 · 支持哪些站点 -->
-  <section class="card">
+  <!-- 4 · Supported sites -->
+  <section class="facts">
     <h2>支持哪些站点</h2>
     <p class="sites">
       <span class="chip">bilibili</span>
@@ -107,20 +116,16 @@
     <p class="note">其它站点同样适用：在油猴菜单中点击「匹配当前域名」，即可完成匹配。</p>
   </section>
 
-  <!-- 6 · 常见问题 -->
-  <section class="card">
+  <!-- 5 · FAQ -->
+  <section class="facts">
     <h2>常见问题</h2>
-    <dl class="faq">
-      <dt><strong>提示「连不上同步服务」怎么办？</strong></dt>
-      <dd>多数情况是网络原因：开启代理后重试；或参见安装教程的附录，自行搭建后端并替换地址。</dd>
-      <dt><strong>右下角没有圆形按钮怎么办？</strong></dt>
-      <dd>多数情况是尚未在该网站完成「匹配」（油猴菜单中点击「匹配当前域名」）；未进入房间时页面也不显示圆形按钮。</dd>
-      <dt><strong>如何彻底移除？</strong></dt>
-      <dd>打开油猴管理面板，删除「一起看 · 视频同步」这一行，页面随即恢复原样。</dd>
+    <dl class="pairs">
+      <div><dt>提示「连不上同步服务」怎么办</dt><dd>多数情况是网络原因：开启代理后重试；或参照安装教程的附录，自行搭建后端并替换地址。</dd></div>
+      <div><dt>右下角没有圆形按钮怎么办</dt><dd>多数情况是尚未在该网站完成「匹配」（油猴菜单中点击「匹配当前域名」）；未进入房间时页面也不显示圆形按钮。</dd></div>
+      <div><dt>如何彻底移除</dt><dd>打开油猴管理面板，删除「一起看 · 视频同步」这一行，页面随即恢复原样。</dd></div>
     </dl>
   </section>
 
-  <!-- 7 · 结尾 -->
   <p class="tail">完整安装步骤见 <a href="{{GUIDE_URL}}">安装教程</a>，源码见 <a href="https://github.com/IYIAK/watch-party">GitHub</a>。</p>
 
 </div>

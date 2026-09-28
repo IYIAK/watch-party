@@ -172,109 +172,166 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
    END OF SHARED BASE — append page-specific styles below this marker.
    ========================================================================== */
 
-/* ---- page: home ---- */
-  /* Scoped with .home (the wrapper site/src/home.html adds) so nothing here
-     can leak into the guide page. */
-  .home .hero p { margin:0; }
-  .home .hero p + p { margin-top:13px; }
-  .home .hero a:not(.btn) { color:var(--blue); }
-  .home .hero code, .home .note code, .home p.card code {
-    font-family: ui-monospace, Consolas, "Courier New", monospace; font-size:.86em;
-    background:#f1f4f9; border:1px solid var(--line); border-radius:6px;
-    padding:1px 5px; color:#39424f; overflow-wrap:anywhere; }
+/* ---- page: home — 两条时间轴对在一起 -------------------------------------
+   The page is built like a player's timeline: two playheads that end up on the
+   same position, and a vertical rail that the steps hang off. Colour carries
+   meaning only where the product has two people in it: blue is the host, amber
+   is the member. Everything else stays quiet.
+   -------------------------------------------------------------------------- */
+.page-home {
+  --ink:#0B1220; --ink2:#121A2B; --paper:#EAF0F8; --host:#4C8DFF; --guest:#FFB35C; --dim:#93A2BE;
+  --line:rgba(234,240,248,.10);
+  background:var(--ink); color:var(--paper);
+  /* a screen lighting a dark room, not a flat fill */
+  background-image:radial-gradient(1100px 540px at 50% -8%, rgba(76,141,255,.16), transparent 70%);
+  background-repeat:no-repeat;
+}
+.page-home header.bar { background:rgba(11,18,32,.82); border-bottom-color:var(--line); }
+.page-home .tab { color:var(--dim); }
+.page-home .tab:hover { background:rgba(234,240,248,.06); color:var(--paper); }
+.page-home .tab.on { background:rgba(76,141,255,.16); color:#9CC0FF; }
+.page-home .ver { background:rgba(234,240,248,.08); color:var(--dim); }
+.page-home footer { color:var(--dim); }
+.page-home footer a { color:#9CC0FF; }
 
+  /* Display voice: HarmonyOS Sans where it exists, YaHei otherwise — both are
+     already on the machine, and neither is the reflex system-ui default. */
+  /* the shared shell paints .hero as a white card; on this page the hero sits
+     directly on the dark field, so the card must be turned off explicitly */
+  .page-home .hero { background:none; border:0; box-shadow:none; }
+  .home h1, .home h2, .home h3 { font-family:"HarmonyOS Sans SC","Microsoft YaHei",system-ui,sans-serif; }
+  .home .hero { padding:34px 0 0; }
+  .home .hero h1 { margin:0 0 14px; font-size:clamp(30px,5.4vw,46px); line-height:1.16;
+    letter-spacing:-.02em; font-weight:700; }
+  .home .lede { margin:0; max-width:34em; font-size:16px; line-height:1.85; color:var(--dim); }
 
-  .home .card h2 { margin:0 0 14px; font-size:19px; letter-spacing:-.2px; }
-  .home .card p { margin:10px 0; }
-  .home .card > :first-child { margin-top:0; }
-  .home .card > :last-child { margin-bottom:0; }
-  .home .card a:not(.btn) { color:var(--blue); }
+  /* The three actions, inline in the hero */
+  .home .actions-inline { margin:28px 0 0; }
+  .home .actions-inline .note code { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    font-size:.88em; background:rgba(76,141,255,.14); border:1px solid rgba(76,141,255,.28);
+    border-radius:6px; padding:1px 6px; color:#BFD6FF; overflow-wrap:anywhere; }
+  .home .actions { display:flex; flex-wrap:wrap; gap:10px; }
+  .home .btn { font:inherit; font-size:14px; border-radius:10px; padding:11px 20px; cursor:pointer;
+    border:1px solid var(--line); background:rgba(234,240,248,.06); color:var(--paper);
+    text-decoration:none; transition:background .15s, border-color .15s, filter .15s; }
+  .home .btn:hover { background:rgba(234,240,248,.12); border-color:rgba(234,240,248,.24); }
+  .home .btn.primary { background:var(--host); border-color:transparent; color:#08101F; font-weight:700; }
+  .home .btn.primary:hover { filter:brightness(1.08); }
+  .home .btn.ok { background:#2ED3A0; border-color:transparent; color:#052018; font-weight:700; }
+  .home .note { margin:15px 0 0; font-size:13px; line-height:1.75; color:var(--dim); }
+  .home .note a { color:#9CC0FF; }
 
-  /* Store buttons — 直达 Chrome / Edge / Firefox 的油猴商店 */
-  .home .stores { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 16px; }
-  .home .store { display:inline-flex; align-items:center; justify-content:center;
-    font-size:14px; font-weight:600; text-decoration:none; color:var(--blue);
-    background:#eef3ff; border:1px solid #dbe5ff; border-radius:11px; padding:9px 16px;
-    transition: background .15s, border-color .15s; }
-  .home .store:hover { background:#e3ecff; border-color:#c3d3ff; }
+  /* THE moment: two playheads settling on one position. One animation on the
+     page, and it is the product's own promise; nothing else moves. Positions are
+     written out rather than read from custom properties — var() inside @keyframes
+     does not resolve reliably in Chromium, which left the guest stuck at "from". */
+  .home .sync { margin:34px 0 0; }
+  .home .track { position:relative; height:4px; border-radius:99px; background:rgba(234,240,248,.13); }
+  .home .ph { position:absolute; top:50%; width:14px; height:14px; margin:-7px 0 0 -7px; border-radius:50%; }
+  .home .ph.host { left:74%; background:var(--host); box-shadow:0 0 0 5px rgba(76,141,255,.16); }
+  .home .ph.guest { left:74%; background:var(--guest); box-shadow:0 0 0 5px rgba(255,179,92,.16);
+    animation:snap .95s cubic-bezier(.22,1,.36,1) both; }
+  @keyframes snap { from { left:36%; } to { left:74%; } }
+  .home .sync figcaption { display:flex; justify-content:space-between; gap:12px; margin:14px 0 0;
+    font-size:12.5px; color:var(--dim); }
+  .home .sync .who b { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:14.5px;
+    font-variant-numeric:tabular-nums; }
+  .home .sync .who.host b { color:var(--host); }
+  .home .sync .who.guest b { color:var(--guest); }
+  @media (prefers-reduced-motion: reduce) { .home .ph.guest { animation:none; } }
 
-  /* Feature cards */
-  .home .feats { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:12px; }
-  .home .feat { background:#f7f9fc; border:1px solid var(--line); border-radius:13px; padding:13px 15px; }
-  .home .feat strong { display:block; margin-bottom:4px; font-size:14.5px; }
-  .home .feat span { display:block; color:var(--dim); font-size:13.5px; line-height:1.65; }
+  /* The path: a real four-step sequence, hung off a rail whose ticks carry the
+     order — so the numbers are information, not decoration. */
+  .home .path { margin:52px 0 0; }
+  .home h2 { margin:0; font-size:20px; letter-spacing:-.01em; }
+  .home .rail { list-style:none; margin:20px 0 0; padding:0 0 0 30px; position:relative;
+    counter-reset:step; }
+  .home .rail::before { content:""; position:absolute; left:7px; top:8px; bottom:10px; width:2px;
+    border-radius:2px; background:linear-gradient(rgba(76,141,255,.85), rgba(76,141,255,.12)); }
+  .home .rail > li { position:relative; margin:0 0 30px; }
+  /* the tick carries the order: a playhead marker you can count */
+  .home .rail > li::before { counter-increment:step; content:counter(step);
+    position:absolute; left:-30px; top:3px; width:17px; height:17px; border-radius:50%;
+    background:var(--host); color:#08101F; font-size:11px; font-weight:700; line-height:17px;
+    text-align:center; }
+  .home .rail h3 { margin:0 0 6px; font-size:16.5px; }
+  .home .rail p { margin:0 0 12px; max-width:38em; font-size:14px; line-height:1.8; color:var(--dim); }
+  .home .stores { display:flex; flex-wrap:wrap; gap:9px; margin:0 0 12px; }
+  .home .store { font-size:13.5px; font-weight:600; text-decoration:none; color:#BFD6FF;
+    background:rgba(76,141,255,.12); border:1px solid rgba(76,141,255,.3); border-radius:10px;
+    padding:9px 16px; transition:background .15s, border-color .15s; }
+  .home .store:hover { background:rgba(76,141,255,.2); border-color:rgba(76,141,255,.5); }
+
+  /* Feature / FAQ lists: two quiet columns, no card chrome anywhere */
+  .home .facts { margin:52px 0 0; }
+  .home .pairs { margin:20px 0 0; }
+  .home .pairs > div { display:grid; grid-template-columns:minmax(9em,14em) 1fr; gap:6px 22px;
+    padding:13px 0; border-top:1px solid var(--line); }
+  .home .pairs > div:first-child { border-top:0; padding-top:0; }
+  .home .pairs dt { font-weight:600; }
+  .home .pairs dt em { font-style:normal; color:var(--host); }
+  .home .pairs dd { margin:0; color:var(--dim); font-size:14px; line-height:1.75; }
 
   /* Supported-site chips */
-  .home .sites { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-  .home .chip { display:inline-block; font-size:13.5px; font-weight:600; color:#39424f;
-    background:#eef2f8; border:1px solid var(--line); border-radius:99px; padding:4px 13px; }
+  .home .sites { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0; }
+  .home .chip { display:inline-block; font-size:13.5px; font-weight:600; color:#C8D6EC;
+    background:rgba(234,240,248,.07); border:1px solid var(--line); border-radius:99px; padding:5px 14px; }
 
-  /* FAQ */
-  .home .faq { margin:0; }
-  .home .faq dt { margin-top:16px; }
-  .home .faq dt:first-child { margin-top:0; }
-  .home .faq dt strong { font-size:15px; }
-  .home .faq dd { margin:4px 0 0; color:var(--dim); }
+  /* The miniatures: the interface people will actually look for, reproduced
+     small. A dashed frame says "this is a picture", not a live control. */
+  .home .demo { display:flex; align-items:center; justify-content:center; gap:12px;
+    margin:0 0 4px; padding:20px 16px; border:1px dashed rgba(234,240,248,.14);
+    border-radius:14px; background:rgba(234,240,248,.03); }
 
-  /* Steps — a real three-step sequence, so numbered markers carry information */
-  .home .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
-  .home .step h3 { margin:0 0 6px; font-size:15px; display:flex; align-items:baseline; gap:8px; }
-  .home .step-n { flex:0 0 auto; font-size:12px; font-weight:700; color:#fff;
-    background:var(--blue); border-radius:99px; width:20px; height:20px; line-height:20px;
-    text-align:center; align-self:center; }
-  .home .step p { margin:0; color:var(--dim); font-size:13.5px; line-height:1.7; }
-  /* 164px keeps the tallest mockup (the panel, 155px) inside its frame */
-  .home .figure { position:relative; height:164px; margin:0 0 11px; border:1px solid var(--line);
-    border-radius:13px; background:#f7f9fc; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:9px; overflow:hidden; }
-
-  /* ① the browser's userscript menu, its first row being the one to click */
-  .home .menu { width:232px; background:#fff; border:1px solid var(--line); border-radius:11px;
-    box-shadow:0 6px 18px rgba(15,23,42,.07); padding:5px; }
+  /* The miniatures keep the real interface's own colours — the panel really is a
+     white card — so they read as pictures of the product rather than decoration. */
+  /* ① the userscript menu, its first row being the one to click */
+  .home .menu { width:236px; background:#fff; border:1px solid #e6eaf1; border-radius:11px;
+    box-shadow:0 10px 26px rgba(0,0,0,.28); padding:5px; }
   .home .menu-row { font-size:11px; color:#5b6472; padding:6px 9px; border-radius:7px;
     white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .home .menu-row.on { background:#e9f0ff; color:#1c3fae; font-weight:600; }
 
-  /* ② the panel itself, plus its round button — the memorable moment of the trio */
-  .home .mini-panel { width:196px; background:#fff; border:1px solid var(--line);
-    border-radius:14px; box-shadow:0 8px 22px rgba(15,23,42,.09); padding:11px 12px; }
-  .home .mini-title { margin:0 0 7px; font-size:11.5px; font-weight:700; color:var(--ink); }
+  /* ② the panel itself, plus its round button */
+  .home .mini-panel { width:196px; background:#fff; border-radius:14px; padding:11px 12px;
+    box-shadow:0 14px 34px rgba(0,0,0,.4); }
+  .home .mini-title { margin:0 0 7px; font-size:11.5px; font-weight:700; color:#1b2130; }
   .home .mini-input { font-size:10.5px; color:#9aa4b5; background:#f5f7fb; border:1px solid #e7ebf2;
     border-radius:7px; padding:6px 8px; }
   .home .mini-btn { margin:7px 0; font-size:10.5px; font-weight:600; color:#fff; text-align:center;
-    background:linear-gradient(150deg,#6d8bff,#2b6cff); border-radius:8px; padding:7px 8px; }
+    background:var(--host); border-radius:8px; padding:7px 8px; }
   .home .mini-join { display:flex; gap:6px; }
   .home .mini-input.sm { flex:1 1 auto; }
   .home .mini-ghost { flex:0 0 auto; font-size:10.5px; color:#4a5568; background:#f5f7fb;
     border:1px solid #e3e8f0; border-radius:8px; padding:6px 10px; }
-  .home .mini-fab { position:absolute; right:16px; bottom:14px; width:30px; height:30px;
-    border-radius:50%; background:linear-gradient(150deg,#6d8bff,#2b6cff);
-    box-shadow:0 6px 16px rgba(43,108,255,.4); }
-  .home .mini-fab::after { content:""; position:absolute; inset:9px 9px 12px; border:2px solid #fff;
+  .home .mini-fab { flex:0 0 auto; width:34px; height:34px; border-radius:50%; position:relative;
+    background:var(--host); box-shadow:0 6px 18px rgba(76,141,255,.45); }
+  .home .mini-fab::after { content:""; position:absolute; inset:10px 10px 13px; border:2px solid #fff;
     border-radius:5px 5px 0 0; border-bottom:0; }
 
-  /* ③ the room code, then two people already aligned */
-  .home .mini-code { font-family:ui-monospace, Consolas, "Courier New", monospace; font-size:19px;
-    font-weight:700; letter-spacing:.22em; color:var(--ink); background:#fff;
-    border:1px solid var(--line); border-radius:11px; padding:8px 12px 8px 16px;
-    box-shadow:0 6px 18px rgba(15,23,42,.07); }
-  .home .mini-people { display:flex; flex-direction:column; gap:6px; font-size:11.5px; color:#5b6472; }
+  /* ③ the room code, then the two people who just joined it */
+  .home .mini-code { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace; font-size:20px;
+    font-weight:700; letter-spacing:.2em; color:#0B1220; background:#fff; border-radius:11px;
+    padding:9px 14px 9px 18px; box-shadow:0 14px 34px rgba(0,0,0,.4); }
+  .home .mini-people { display:flex; flex-direction:column; gap:7px; font-size:12px; color:var(--dim); }
   .home .mini-people > div { display:flex; align-items:center; gap:7px; }
-  .home .dot { width:7px; height:7px; border-radius:50%; background:#45e39d; flex:0 0 auto; }
+  .home .mini-people b { font-family:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    font-variant-numeric:tabular-nums; color:var(--paper); font-weight:600; }
+  .home .dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:#2ED3A0; }
 
   /* Closing line */
-  .home .tail { margin:22px 0 0; text-align:center; font-size:14px; color:var(--dim); }
-  .home .tail a:not(.btn) { color:var(--blue); }
+  .home .tail { margin:48px 0 0; font-size:14px; color:var(--dim); }
+  .home .tail a { color:#9CC0FF; }
 
-  @media (max-width: 560px) {
-    .home .card h2 { font-size:17.5px; }
-    .home .feats { grid-template-columns:1fr; gap:10px; }
-    .home .stores { gap:8px; }
-    .home .store { flex:1 1 100%; }
+  @media (max-width: 640px) {
+    .home .hero { padding-top:26px; }
+    .home .pairs > div { grid-template-columns:1fr; gap:3px 0; }
+    .home .store { flex:1 1 100%; text-align:center; }
+    .home .demo { padding:16px 12px; }
   }
 </style>
 </head>
-<body>
+<body class="page-${activeTab === "home" ? "home" : "guide"}">
 <header class="bar">
   <div class="wrap">
     <span class="logo">▶ 一起看</span>
@@ -292,8 +349,7 @@ ${body}
 </main>
 
 <footer>
-  一起看 · 视频同步 &nbsp;·&nbsp; 同步服务器地址已写入脚本 &nbsp;·&nbsp;
-  <a href="${GITHUB_URL}">GitHub</a>
+  「一起看」是一个油猴脚本，同步服务器地址已写入脚本。源码见 <a href="${GITHUB_URL}">GitHub</a>。
 </footer>
 
 <script>
