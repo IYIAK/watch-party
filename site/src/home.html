@@ -20,12 +20,9 @@
 
 {{ACTIONS}}
 
-  <!-- caption for the row above: those three buttons are all most people need -->
-  <p class="card">上述三个按钮即可完成全部操作：点击「一键安装脚本」即可安装；需要邀请成员时，点击「复制安装地址」（<code>{{SCRIPT_URL}}</code>），将复制的链接发送给对方。分步图文说明见 <a href="{{GUIDE_URL}}">安装教程</a>。</p>
-
-  <!-- 2 · 第一步 -->
+  <!-- 2 · 先装油猴 -->
   <section class="card">
-    <h2>第一步：安装油猴（Tampermonkey）</h2>
+    <h2>先装油猴（Tampermonkey）</h2>
     <p>油猴（Tampermonkey）是浏览器的脚本管理器，本脚本需通过它运行。安装油猴后，「一键安装脚本」方可生效。</p>
     <div class="stores">
       <a class="store" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Chrome 商店</a>
@@ -35,7 +32,56 @@
     <p class="note">Chrome 商店在国内常无法访问，可改用 Edge 或 Firefox 的商店，也可在商店中搜索 Tampermonkey。完整图文步骤见 <a href="{{GUIDE_URL}}">安装教程</a>。</p>
   </section>
 
-  <!-- 3 · 它能做什么 -->
+  <!-- 3 · 装好之后怎么用 —— 真实的三步流程，所以用编号 -->
+  <section class="card">
+    <h2>装好之后怎么用</h2>
+    <div class="steps">
+
+      <div class="step">
+        <div class="figure" aria-hidden="true">
+          <div class="menu">
+            <div class="menu-row on">匹配当前域名（www.bilibili.com）</div>
+            <div class="menu-row">匹配上级域名（bilibili.com，含所有子域）</div>
+            <div class="menu-row">查看已匹配域名</div>
+          </div>
+        </div>
+        <h3><span class="step-n">1</span>在视频网站匹配域名</h3>
+        <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后该网站才会生效；点击油猴菜单里的「打开一起看」即可呼出面板。</p>
+      </div>
+
+      <div class="step">
+        <div class="figure" aria-hidden="true">
+          <div class="mini-panel">
+            <p class="mini-title">一起看</p>
+            <div class="mini-input">你的昵称</div>
+            <div class="mini-btn">创建房间</div>
+            <div class="mini-join">
+              <div class="mini-input sm">房间码</div>
+              <div class="mini-ghost">加入</div>
+            </div>
+          </div>
+          <div class="mini-fab"></div>
+        </div>
+        <h3><span class="step-n">2</span>打开面板，创建房间</h3>
+        <p>点右下角的圆钮打开面板，填写昵称后点击「创建房间」，得到一个 6 位房间码。</p>
+      </div>
+
+      <div class="step">
+        <div class="figure" aria-hidden="true">
+          <div class="mini-code">7 2 K 9 Q M</div>
+          <div class="mini-people">
+            <div><span class="dot"></span>阿凯 · 12:34</div>
+            <div><span class="dot"></span>小林 · 12:33</div>
+          </div>
+        </div>
+        <h3><span class="step-n">3</span>把房间码发给朋友</h3>
+        <p>对方装好同一份脚本后，在视频页输入房间码即可加入；之后由房主控制进度，双方自动对齐。</p>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- 4 · 它能做什么 -->
   <section class="card">
     <h2>它能做什么</h2>
     <div class="feats">
@@ -48,7 +94,7 @@
     </div>
   </section>
 
-  <!-- 4 · 支持哪些站点 -->
+  <!-- 5 · 支持哪些站点 -->
   <section class="card">
     <h2>支持哪些站点</h2>
     <p class="sites">
@@ -61,7 +107,7 @@
     <p class="note">其它站点同样适用：在油猴菜单中点击「匹配当前域名」，即可完成匹配。</p>
   </section>
 
-  <!-- 5 · 常见问题 -->
+  <!-- 6 · 常见问题 -->
   <section class="card">
     <h2>常见问题</h2>
     <dl class="faq">
@@ -74,7 +120,7 @@
     </dl>
   </section>
 
-  <!-- 6 · 结尾 -->
+  <!-- 7 · 结尾 -->
   <p class="tail">完整安装步骤见 <a href="{{GUIDE_URL}}">安装教程</a>，源码见 <a href="https://github.com/IYIAK/watch-party">GitHub</a>。</p>
 
 </div>

@@ -53,7 +53,7 @@ function renderTabs(activeTab) {
 // ---------------------------------------------------------------------------
 const ACTIONS_TOKEN = "{{ACTIONS}}";
 
-const ACTION_ROW = `  <section class="card install" aria-label="安装">
+const ACTIONS_INNER = `
     <div class="actions">
       <a class="btn primary" id="install" href="{{SCRIPT_URL}}">一键安装脚本</a>
       <button class="btn" type="button" id="copy">复制脚本代码</button>
@@ -61,16 +61,24 @@ const ACTION_ROW = `  <section class="card install" aria-label="安装">
     </div>
     <p class="note">
       使用前需安装 <strong>Tampermonkey（油猴）</strong>，步骤见 <a href="{{GUIDE_URL}}">安装教程</a>。
-      当前版本 <code>v{{VERSION}}</code>。未安装油猴时「一键安装脚本」不会生效，可改用「复制脚本代码」。
-    </p>
+      当前版本 <code>v{{VERSION}}</code>。未安装油猴时「一键安装脚本」不会生效，可改用「复制脚本代码」；
+      邀请朋友时点「复制安装地址」，把链接发给对方即可。
+    </p>`;
+
+// Two shapes: a card of its own when the row sits above the body (the guide page,
+// whose step 2 points at it), and a plain inline block when the body places the
+// row inside its own hero — otherwise the hero would read as three stacked cards.
+const ACTION_ROW = `  <section class="card install" aria-label="安装">${ACTIONS_INNER}
   </section>`;
+const ACTION_ROW_INLINE = `  <div class="actions-inline" aria-label="安装">${ACTIONS_INNER}
+  </div>`;
 
 export function renderPage({ title, description, bodyHtml, activeTab }) {
   const wantsInlineActions = String(bodyHtml).includes(ACTIONS_TOKEN);
   // Above the body (default), or empty when the body places the row itself.
   const actionsAbove = wantsInlineActions ? "" : `${ACTION_ROW}\n\n`;
   const body = wantsInlineActions
-    ? String(bodyHtml).split(ACTIONS_TOKEN).join(ACTION_ROW)
+    ? String(bodyHtml).split(ACTIONS_TOKEN).join(ACTION_ROW_INLINE)
     : bodyHtml;
 
   return `<!doctype html>
@@ -175,8 +183,6 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
     background:#f1f4f9; border:1px solid var(--line); border-radius:6px;
     padding:1px 5px; color:#39424f; overflow-wrap:anywhere; }
 
-  /* One-line caption sitting directly under the action row (home only) */
-  .home p.card { margin:0 0 22px; font-size:14.5px; color:var(--dim); }
 
   .home .card h2 { margin:0 0 14px; font-size:19px; letter-spacing:-.2px; }
   .home .card p { margin:10px 0; }
@@ -209,6 +215,52 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
   .home .faq dt:first-child { margin-top:0; }
   .home .faq dt strong { font-size:15px; }
   .home .faq dd { margin:4px 0 0; color:var(--dim); }
+
+  /* Steps — a real three-step sequence, so numbered markers carry information */
+  .home .steps { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:14px; }
+  .home .step h3 { margin:0 0 6px; font-size:15px; display:flex; align-items:baseline; gap:8px; }
+  .home .step-n { flex:0 0 auto; font-size:12px; font-weight:700; color:#fff;
+    background:var(--blue); border-radius:99px; width:20px; height:20px; line-height:20px;
+    text-align:center; align-self:center; }
+  .home .step p { margin:0; color:var(--dim); font-size:13.5px; line-height:1.7; }
+  /* 164px keeps the tallest mockup (the panel, 155px) inside its frame */
+  .home .figure { position:relative; height:164px; margin:0 0 11px; border:1px solid var(--line);
+    border-radius:13px; background:#f7f9fc; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:9px; overflow:hidden; }
+
+  /* ① the browser's userscript menu, its first row being the one to click */
+  .home .menu { width:232px; background:#fff; border:1px solid var(--line); border-radius:11px;
+    box-shadow:0 6px 18px rgba(15,23,42,.07); padding:5px; }
+  .home .menu-row { font-size:11px; color:#5b6472; padding:6px 9px; border-radius:7px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .home .menu-row.on { background:#e9f0ff; color:#1c3fae; font-weight:600; }
+
+  /* ② the panel itself, plus its round button — the memorable moment of the trio */
+  .home .mini-panel { width:196px; background:#fff; border:1px solid var(--line);
+    border-radius:14px; box-shadow:0 8px 22px rgba(15,23,42,.09); padding:11px 12px; }
+  .home .mini-title { margin:0 0 7px; font-size:11.5px; font-weight:700; color:var(--ink); }
+  .home .mini-input { font-size:10.5px; color:#9aa4b5; background:#f5f7fb; border:1px solid #e7ebf2;
+    border-radius:7px; padding:6px 8px; }
+  .home .mini-btn { margin:7px 0; font-size:10.5px; font-weight:600; color:#fff; text-align:center;
+    background:linear-gradient(150deg,#6d8bff,#2b6cff); border-radius:8px; padding:7px 8px; }
+  .home .mini-join { display:flex; gap:6px; }
+  .home .mini-input.sm { flex:1 1 auto; }
+  .home .mini-ghost { flex:0 0 auto; font-size:10.5px; color:#4a5568; background:#f5f7fb;
+    border:1px solid #e3e8f0; border-radius:8px; padding:6px 10px; }
+  .home .mini-fab { position:absolute; right:16px; bottom:14px; width:30px; height:30px;
+    border-radius:50%; background:linear-gradient(150deg,#6d8bff,#2b6cff);
+    box-shadow:0 6px 16px rgba(43,108,255,.4); }
+  .home .mini-fab::after { content:""; position:absolute; inset:9px 9px 12px; border:2px solid #fff;
+    border-radius:5px 5px 0 0; border-bottom:0; }
+
+  /* ③ the room code, then two people already aligned */
+  .home .mini-code { font-family:ui-monospace, Consolas, "Courier New", monospace; font-size:19px;
+    font-weight:700; letter-spacing:.22em; color:var(--ink); background:#fff;
+    border:1px solid var(--line); border-radius:11px; padding:8px 12px 8px 16px;
+    box-shadow:0 6px 18px rgba(15,23,42,.07); }
+  .home .mini-people { display:flex; flex-direction:column; gap:6px; font-size:11.5px; color:#5b6472; }
+  .home .mini-people > div { display:flex; align-items:center; gap:7px; }
+  .home .dot { width:7px; height:7px; border-radius:50%; background:#45e39d; flex:0 0 auto; }
 
   /* Closing line */
   .home .tail { margin:22px 0 0; text-align:center; font-size:14px; color:var(--dim); }
