@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.7
+// @version      0.10.8
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -2577,7 +2577,7 @@
       if (input.request) {
         candidates.push({
           key: `req:${input.request.id}`,
-          text: `${input.request.fromName} 想跳到 ${input.request.label}`,
+          text: `${input.request.fromName} 请求跳转至 ${input.request.label}`,
           tone: "warn",
           actions: input.isHost ? ["accept", "ignore"] : []
         });
@@ -2891,7 +2891,7 @@
       // Host only: somebody dragged their bar and wants the room to follow.
       const seekReq = handlers.getSeekRequest();
       const requestBar = seekReq
-        ? `<div id="wp-seek-req"><b>${escapeHtml(seekReq.fromName)}</b> 想跳到 ${fmt(seekReq.time)}
+        ? `<div id="wp-seek-req"><b>${escapeHtml(seekReq.fromName)}</b> 请求跳转至 ${fmt(seekReq.time)}
             <div class="row">
               <button class="action" id="wp-req-accept">跟随 TA</button>
               <button class="ghost" id="wp-req-ignore">忽略</button>
@@ -2918,7 +2918,7 @@
         ${requestBar}
         <div id="wp-list">${list || '<div class="wp-empty">暂无参与者</div>'}</div>
         ${mismatchBar}
-        <div class="row"><button class="ghost" id="wp-jump" style="width:100%">跳到房主位置</button></div>
+        <div class="row"><button class="ghost" id="wp-jump" style="width:100%">跳转到房主位置</button></div>
         <label class="wp-toggle"><input type="checkbox" id="wp-follow-progress" ${
           cfg.autoFollowProgress ? "checked" : ""
         }><span class="wp-box"></span><span>自动跟随房主进度</span>
@@ -3171,7 +3171,7 @@
     },
     jumpToHost() {
       syncEngine.jumpToHost();
-      panelUi.setNotice("已跳到房主位置");
+      panelUi.setNotice("已跳转到房主位置");
     }
   });
 

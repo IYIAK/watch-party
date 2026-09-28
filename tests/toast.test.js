@@ -24,7 +24,7 @@ function toastFor(input) {
   if (input.request) {
     candidates.push({
       key: `req:${input.request.id}`,
-      text: `${input.request.fromName} 想跳到 ${input.request.label}`,
+      text: `${input.request.fromName} 请求跳转至 ${input.request.label}`,
       tone: "warn",
       actions: input.isHost ? ["accept", "ignore"] : []
     });
@@ -73,8 +73,8 @@ test("nothing active means no bubble", () => {
 });
 
 test("a plain notice is a bubble without buttons", () => {
-  const view = toastFor({ ...base, noticeText: "已跳到房主位置" });
-  assert.equal(view.text, "已跳到房主位置");
+  const view = toastFor({ ...base, noticeText: "已跳转到房主位置" });
+  assert.equal(view.text, "已跳转到房主位置");
   assert.deepEqual(view.actions, []);
   assert.equal(view.tone, "info");
   assert.equal(toastFor({ ...base, noticeText: "同步不可用", noticeTone: "error" }).tone, "error");
@@ -97,7 +97,7 @@ test("forcing sync turns the warning into a calm status, with an undo", () => {
 
 test("a jump request is actionable for the host only", () => {
   const host = toastFor({ ...base, request, isHost: true });
-  assert.equal(host.text, "小林 想跳到 12:34");
+  assert.equal(host.text, "小林 请求跳转至 12:34");
   assert.deepEqual(host.actions, ["accept", "ignore"]);
 
   const member = toastFor({ ...base, request, isHost: false });
@@ -122,7 +122,7 @@ test("priority order is waiting > request > different video > notice", () => {
 });
 
 test("with the panel open, action bubbles stand down (the panel has the buttons)", () => {
-  // Different video (member): the panel shows 跳到房主位置 / 强制同步.
+  // Different video (member): the panel shows 跳转到房主位置 / 强制同步.
   assert.equal(toastFor({ ...base, mismatchUrl: "u", panelOpen: true }), null);
   assert.equal(toastFor({ ...base, mismatchUrl: "u", forceSync: true, panelOpen: true }), null);
   // Waiting, as the host: the panel shows 不等了，继续播放.
