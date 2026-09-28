@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.8
+// @version      0.10.9
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -14,6 +14,12 @@
 // @grant        GM_xmlhttpRequest
 // @connect      your-worker.example.workers.dev
 // @connect      127.0.0.1
+// Where a manager should look for updates: the site that publishes this script
+// (the build replaces this placeholder with the real host, so the repository
+// never carries the deployment address). Bump @version on every published change
+// or managers will see the same version and skip it.
+// @updateURL    https://your-site.example.com/watch-party.user.js
+// @downloadURL  https://your-site.example.com/watch-party.user.js
 // @run-at       document-idle
 // @noframes     false
 // ==/UserScript==

@@ -51,10 +51,12 @@ const { name: configName, config } = readConfig();
 const usingRealConfig = configName === "config.json";
 
 const PLACEHOLDER_HOST = "your-worker.example.workers.dev";
+const PLACEHOLDER_SITE = "your-site.example.com";
 const apiHost = String(config.apiHost || PLACEHOLDER_HOST)
   .replace(/^https?:\/\//, "")
   .replace(/\/$/, "");
 const homeUrl = String(config.homeUrl || "").replace(/\/+$/, "");
+const homeHost = homeUrl.replace(/^https?:\/\//, "");
 const guideUrl = String(config.guideUrl || "").replace(/\/+$/, "");
 if (!homeUrl) die(`config ${configName || "(none)"} has no "homeUrl"`);
 if (!guideUrl) die(`config ${configName || "(none)"} has no "guideUrl"`);
@@ -282,10 +284,19 @@ function renderMarkdown(md) {
 const source = readFileSync(join(root, "userscript", "watch-party.user.js"), "utf8");
 const version = (source.match(/^\/\/ @version\s+(\S+)/m) || [])[1] || "dev";
 replacements.VERSION = version;
-const bakedScript = source.split(PLACEHOLDER_HOST).join(apiHost).replace(/\{\{API_HOST\}\}/g, apiHost);
+const bakedScript = source
+  .split(PLACEHOLDER_HOST)
+  .join(apiHost)
+  // The update/download URLs point at the site hosting the script, not at the API.
+  .split(PLACEHOLDER_SITE)
+  .join(homeHost || PLACEHOLDER_SITE)
+  .replace(/\{\{API_HOST\}\}/g, apiHost);
 const baked = bakedScript !== source;
 const script = substitute(bakedScript);
 if (usingRealConfig && !baked) die("real apiHost was not baked into the userscript copy");
+if (usingRealConfig && bakedScript.includes(PLACEHOLDER_SITE)) {
+  die(`the real site host was not baked in (config.homeUrl = ${homeUrl})`);
+}
 
 const doc = readFileSync(join(root, "docs", "安装教程.md"), "utf8").replace(/^\uFEFF/, "");
 const homeBody = readFileSync(join(here, "src", "home.html"), "utf8").replace(/^\uFEFF/, "");
