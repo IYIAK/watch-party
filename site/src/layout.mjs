@@ -169,7 +169,7 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
      can leak into the guide page. */
   .home .hero p { margin:0; }
   .home .hero p + p { margin-top:13px; }
-  .home .hero a { color:var(--blue); }
+  .home .hero a:not(.btn) { color:var(--blue); }
   .home .hero code, .home .note code, .home p.card code {
     font-family: ui-monospace, Consolas, "Courier New", monospace; font-size:.86em;
     background:#f1f4f9; border:1px solid var(--line); border-radius:6px;
@@ -182,7 +182,7 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
   .home .card p { margin:10px 0; }
   .home .card > :first-child { margin-top:0; }
   .home .card > :last-child { margin-bottom:0; }
-  .home .card a { color:var(--blue); }
+  .home .card a:not(.btn) { color:var(--blue); }
 
   /* Store buttons — 直达 Chrome / Edge / Firefox 的油猴商店 */
   .home .stores { display:flex; flex-wrap:wrap; gap:10px; margin:14px 0 16px; }
@@ -212,7 +212,7 @@ export function renderPage({ title, description, bodyHtml, activeTab }) {
 
   /* Closing line */
   .home .tail { margin:22px 0 0; text-align:center; font-size:14px; color:var(--dim); }
-  .home .tail a { color:var(--blue); }
+  .home .tail a:not(.btn) { color:var(--blue); }
 
   @media (max-width: 560px) {
     .home .card h2 { font-size:17.5px; }
