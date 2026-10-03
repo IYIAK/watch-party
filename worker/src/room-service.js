@@ -1,11 +1,11 @@
 const ROOM_ID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const ROOM_ID_LENGTH = 6;
+const ROOM_ID_LENGTH = 4;
 const PARTICIPANT_PREFIX = "p_";
 const HOST_TOKEN_PREFIX = "h_";
 
 const LIMITS = Object.freeze({
-  displayName: 32,
-  roomId: 12,
+  displayName: 20,
+  roomId: 4,
   participantId: 80,
   token: 160,
   title: 160,
@@ -13,7 +13,8 @@ const LIMITS = Object.freeze({
   source: 800,
   adapter: 80,
   videoKey: 200,
-  seekRequestId: 64
+  seekRequestId: 64,
+  sampledAt: 40
 });
 
 export class HttpError extends Error {
@@ -124,6 +125,17 @@ export function createRoomService(db, options = {}) {
     // room back to the start of the video.
     const previous = parseState(participant.state_json);
     const cleanState = normalizePlaybackState(input.state, previous);
+    // A tab handoff changes the owner generation. Requests from the previous
+    // tab can arrive after the new tab has already reported; never let that old
+    // in-flight write roll the room back to an earlier video or position.
+    const previousEpoch = Number(previous.ownerEpoch);
+    const incomingEpoch = Number(cleanState.ownerEpoch);
+    if (
+      Number.isFinite(previousEpoch) &&
+      (!Number.isFinite(incomingEpoch) || incomingEpoch < previousEpoch)
+    ) {
+      return { ok: true, ignored: true };
+    }
     const timestamp = now();
 
     await db
@@ -151,6 +163,16 @@ export function createRoomService(db, options = {}) {
     // Leaving twice is not an error, and neither is leaving a room we are no longer
     // in: the client should not have to care.
     if (!participant) return { ok: true };
+
+    // The host participant id is visible in room state, so it is not a
+    // credential. Require the private host token before allowing that row to be
+    // deleted. Guest leave remains idempotent as before.
+    if (participant.role === "host") {
+      const providedToken = normalizeOptionalString(input.hostToken, "hostToken", LIMITS.token);
+      if (!providedToken || (await tokenHasher(providedToken)) !== room.host_token_hash) {
+        throw new HttpError(403, "Invalid host token");
+      }
+    }
 
     await db
       .prepare("DELETE FROM participants WHERE id = ? AND room_id = ?")
@@ -241,12 +263,17 @@ export function createRoomService(db, options = {}) {
 }
 
 function normalizeDisplayName(value) {
-  const name = normalizeOptionalString(value, "displayName", LIMITS.displayName) || "Friend";
+  const name = normalizeOptionalString(value, "displayName", LIMITS.displayName);
+  if (!name) throw new HttpError(400, "displayName is required");
   return name;
 }
 
 function normalizeRoomId(value) {
-  return normalizeId(String(value || "").toUpperCase(), "roomId", LIMITS.roomId);
+  const roomId = normalizeId(String(value || "").toUpperCase(), "roomId", LIMITS.roomId);
+  if (roomId.length !== ROOM_ID_LENGTH) {
+    throw new HttpError(400, `roomId must be ${ROOM_ID_LENGTH} characters`);
+  }
+  return roomId;
 }
 
 function normalizeId(value, fieldName, maxLength) {
@@ -266,11 +293,11 @@ function normalizeOptionalString(value, fieldName, maxLength, truncate) {
     throw new HttpError(400, `${fieldName} must be a string`);
   }
   const text = value.trim();
-  if (text.length > maxLength) {
+  if (Array.from(text).length > maxLength) {
     // Descriptive fields (a long URL, a data: source, a signed video link) are
     // better cut short than rejected: one overlong value must never stop a
     // participant from reporting at all.
-    if (truncate) return text.slice(0, maxLength);
+    if (truncate) return Array.from(text).slice(0, maxLength).join("");
     throw new HttpError(400, `${fieldName} is too long`);
   }
   return text;
@@ -299,6 +326,12 @@ function normalizePlaybackState(value, previous) {
     // still honoured and the panel can say why they are following.
     forceSync: Boolean(value.forceSync)
   };
+
+  const ownerEpoch = Number(value.ownerEpoch);
+  if (Number.isFinite(ownerEpoch) && ownerEpoch >= 0) state.ownerEpoch = ownerEpoch;
+
+  const sampledAt = normalizeOptionalString(value.sampledAt, "sampledAt", LIMITS.sampledAt);
+  if (sampledAt && Number.isFinite(Date.parse(sampledAt))) state.sampledAt = sampledAt;
 
   const time = normalizeCurrentTime(value.currentTime, previous);
   if (time !== null) state.currentTime = time;

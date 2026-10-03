@@ -7,59 +7,212 @@
   The ACTIONS token (double-brace form, see layout.mjs) marks where the shell
   drops its action row (install / copy-code / copy-url). renderPage() consumes it,
   so the row renders HERE, inside the hero. Never write it twice.
+
+  #stage is driven by the small player simulation in layout.mjs: each screen's
+  picture is computed from its own timecode, so the two frames only match when
+  the two timelines really do. Without script it rests in the aligned state.
 -->
 <div class="home">
 
-  <!-- 1 · Hero. The product's own promise is two timelines landing on the same
-       second, so that is the first thing the page shows. -->
+  <!-- Shared film for both screens. Kept at 0×0 rather than display:none so the
+       gradients stay resolvable from the <use> references below. -->
+  <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="wp-sky" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="#070a24"/>
+        <stop offset=".5" stop-color="#2c2256"/>
+        <stop offset=".8" stop-color="#c0615c"/>
+        <stop offset="1" stop-color="#f4a468"/>
+      </linearGradient>
+      <radialGradient id="wp-sun" cx=".5" cy=".5" r=".5">
+        <stop offset="0" stop-color="#ffe6bd"/>
+        <stop offset=".4" stop-color="#ffb877" stop-opacity=".75"/>
+        <stop offset="1" stop-color="#ff9a5c" stop-opacity="0"/>
+      </radialGradient>
+      <g id="wp-skyg">
+        <rect width="320" height="180" fill="url(#wp-sky)"/>
+        <g fill="#fff">
+          <circle cx="24" cy="18" r=".8" opacity=".8"/><circle cx="58" cy="40" r=".6" opacity=".6"/>
+          <circle cx="96" cy="14" r="1" opacity=".9"/><circle cx="140" cy="30" r=".6" opacity=".5"/>
+          <circle cx="178" cy="12" r=".8" opacity=".7"/><circle cx="252" cy="22" r=".7" opacity=".7"/>
+          <circle cx="290" cy="44" r=".6" opacity=".5"/><circle cx="306" cy="10" r=".9" opacity=".8"/>
+        </g>
+        <circle cx="206" cy="112" r="54" fill="url(#wp-sun)"/>
+        <circle cx="206" cy="112" r="16" fill="#ffe8c6"/>
+      </g>
+      <path id="wp-far" fill="#56397a" d="M0 112 L36 96 L70 104 L118 80 L160 98 L204 88 L246 106 L290 84 L336 100 L380 76 L424 96 L470 90 L512 108 L560 86 L604 100 L640 112 V180 H0Z"/>
+      <path id="wp-mid" fill="#2b2049" d="M0 132 C50 118 90 124 130 130 S210 138 260 124 S350 110 400 126 S490 140 540 128 S610 122 640 132 V180 H0Z"/>
+      <path id="wp-near" fill="#100c1f" d="M0 150 C40 144 70 146 110 152 S190 160 240 150 S330 140 380 148 S470 160 520 152 S600 144 640 150 V180 H0Z M58 149 l7 -20 l7 20Z M70 150 l5 -13 l5 13Z M302 145 l6 -18 l6 18Z M316 146 l4 -11 l4 11Z M500 153 l7 -21 l7 21Z"/>
+    </defs>
+  </svg>
+
+  <!-- 1 · Hero -->
   <section class="hero">
-    <h1>和朋友一起看，进度自动对齐</h1>
-    <p class="lede">房主暂停，成员端一起暂停；房主拖动进度条，成员端跟着跳；有人卡顿，全房间一起等。</p>
+    <p class="eyebrow"><span class="live" aria-hidden="true"></span>开源油猴脚本 · 零账号 · 浏览器内运行</p>
+    <h1><span class="l1">隔着千里，</span><br><em>停在同一帧。</em></h1>
+    <p class="lede">让房间里每个人的视频进度始终一致，异地也能一起看同一段内容。</p>
 
 {{ACTIONS}}
 
-    <figure class="sync" role="img" aria-label="房主的播放进度为 12:34，成员的进度随后对齐到同一位置">
-      <span class="player host">
-        <span class="play" aria-hidden="true"></span>
-        <span class="who">房主</span>
-        <span class="bar"><span class="fill host"></span></span>
-        <span class="at">12:34</span>
-      </span>
-      <span class="player guest">
-        <span class="play" aria-hidden="true"></span>
-        <span class="who">成员</span>
-        <span class="bar"><span class="fill guest"></span></span>
-        <span class="at">12:34</span>
-      </span>
-    </figure>
+    <a class="hero-guide-link" href="#install-steps">第一次使用？查看安装步骤 <span aria-hidden="true">↓</span></a>
+
+    <div class="stage" id="stage" role="img" aria-label="演示：房主与成员两块屏幕，拖动、暂停、缓冲时进度始终对齐">
+      <div class="screen host">
+        <div class="chrome"><i></i><i></i><i></i><span class="tag"><span class="who-dot"></span>房主 · 阿凯</span></div>
+        <div class="frame">
+          <svg class="film" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <use href="#wp-skyg"/>
+            <g data-k=".3"><use href="#wp-far"/><use href="#wp-far" x="640"/></g>
+            <g data-k=".6"><use href="#wp-mid"/><use href="#wp-mid" x="640"/></g>
+            <g data-k="1"><use href="#wp-near"/><use href="#wp-near" x="640"/></g>
+          </svg>
+          <span class="state" aria-hidden="true"><i class="pz"></i><i class="spin"></i></span>
+        </div>
+        <div class="scrub"><span class="scrub-fill"></span></div>
+        <div class="meta"><span class="tc">12:34</span><span>24:00</span></div>
+      </div>
+
+      <div class="link" aria-hidden="true">
+        <span class="delta"><b>Δ 0.08s</b></span>
+        <span class="beam"><i></i><i></i><i></i></span>
+      </div>
+
+      <div class="screen guest">
+        <div class="chrome"><i></i><i></i><i></i><span class="tag"><span class="who-dot"></span>成员 · 小林</span></div>
+        <div class="frame">
+          <svg class="film" viewBox="0 0 320 180" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <use href="#wp-skyg"/>
+            <g data-k=".3"><use href="#wp-far"/><use href="#wp-far" x="640"/></g>
+            <g data-k=".6"><use href="#wp-mid"/><use href="#wp-mid" x="640"/></g>
+            <g data-k="1"><use href="#wp-near"/><use href="#wp-near" x="640"/></g>
+          </svg>
+          <span class="state" aria-hidden="true"><i class="pz"></i><i class="spin"></i></span>
+        </div>
+        <div class="scrub"><span class="scrub-fill"></span></div>
+        <div class="meta"><span class="tc">12:34</span><span>24:00</span></div>
+      </div>
+
+      <ol class="ticker" id="ticker" aria-hidden="true">
+        <li><span class="tc">12:34</span>两端进度一致，同步中</li>
+      </ol>
+    </div>
   </section>
 
-  <!-- 2 · The path. A real five-step sequence, so the rail's ticks carry order. -->
-  <section class="path">
-    <h2>五步开始一起看</h2>
-    <ol class="rail">
+  <!-- 2 · Numbers -->
+  <section class="stats reveal" aria-label="产品特性">
+    <div class="stat"><b>4 位</b><span>房间码，念一遍就能加入</span></div>
+    <div class="stat"><b>0</b><span>注册、登录、客户端</span></div>
+    <div class="stat"><b>&lt; 0.3s</b><span>通常的对齐误差</span></div>
+    <div class="stat"><b>1.5–10s</b><span>自适应轮询，省电省流</span></div>
+  </section>
 
-      <li>
-        <h3>安装油猴（Tampermonkey）</h3>
-        <p>油猴是浏览器的脚本管理器，本脚本需要它运行。三个商店任选其一。</p>
-        <p class="stores">
-          <a class="store" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener">Chrome 商店</a>
-          <a class="store" href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener">Edge 加载项</a>
-          <a class="store" href="https://addons.mozilla.org/firefox/addon/tampermonkey/" target="_blank" rel="noopener">Firefox 附加组件</a>
-        </p>
-        <p class="note">Chrome 商店在国内常无法访问，可改用 Edge 或 Firefox 的商店，或在商店中搜索 Tampermonkey。</p>
+  <!-- 3 · What it does -->
+  <section class="block">
+    <div class="head reveal">
+      <p class="kicker">它能做什么</p>
+      <h2>你只管看，<em>对齐交给它。</em></h2>
+    </div>
+    <div class="bento">
+      <article class="cell wide reveal">
+        <div class="cell-copy">
+          <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 8h16M4 16h16"/><path d="M14 4v8M10 12v8"/></svg></span>
+          <h3>进度自动对齐</h3>
+          <p>房主拖动进度条时，成员端同步跳转，误差通常在 0.3 秒以内。</p>
+        </div>
+        <div class="duo" aria-hidden="true">
+          <span class="duo-row host"><span></span></span>
+          <span class="duo-row guest"><span></span></span>
+          <span class="duo-head"><b>12:34</b></span>
+        </div>
+      </article>
+      <article class="cell reveal">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg></span>
+        <h3>播放暂停跟随</h3>
+        <p>房主暂停，成员端同步暂停；房主播放，成员端同步继续。</p>
+      </article>
+      <article class="cell reveal">
+        <span class="ico amber" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 12a8 8 0 0 1 13.7-5.6M20 12a8 8 0 0 1-13.7 5.6"/><path d="M18 3v4h-4M6 21v-4h4"/></svg></span>
+        <h3>跨站看同一内容</h3>
+        <p>页面地址不同也能一起看，点「强制同步」即按房主的进度播放。</p>
+      </article>
+      <article class="cell reveal">
+        <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 9h18"/></svg></span>
+        <h3>一键跳转至相同视频</h3>
+        <p>点面板上的「跳转到一起看的视频」，自动在新标签打开房主的视频页并匹配该站点。</p>
+      </article>
+      <article class="cell reveal">
+        <span class="ico amber" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 7H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3"/><path d="M13 4h7v7M20 4l-9 9"/></svg></span>
+        <h3>房间码即邀请</h3>
+        <p>创建房间得到 4 位码，发给朋友输入即可加入。</p>
+      </article>
+      <article class="cell wide reveal">
+        <div class="cell-copy">
+          <span class="ico amber" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></svg></span>
+          <h3>缓冲时全房间等待</h3>
+          <p>有人缓冲时全房间自动暂停等待，房主也可以点「不等了，继续播放」。</p>
+        </div>
+        <div class="crew" aria-hidden="true">
+          <span class="mate"><span class="av">凯</span>阿凯<em>等待中</em></span>
+          <span class="mate slow"><span class="av">林</span>小林<em>缓冲中</em></span>
+          <span class="mate"><span class="av">周</span>阿周<em>等待中</em></span>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- 4 · The path. A real five-step sequence, so the numbers carry order. -->
+  <section class="block" id="install-steps">
+    <div class="head reveal">
+      <p class="kicker">从安装到开看 · 只需几分钟</p>
+      <h2>六步，<em>开始一起看。</em></h2>
+    </div>
+    <ol class="steps">
+
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>安装油猴（Tampermonkey）</h3>
+          <p>油猴是浏览器的脚本管理器，本脚本需要它运行。右侧商店和官网任选其一。</p>
+          <p class="note">Chrome 商店在国内常无法访问，可改用 Edge 或 Firefox 的商店，或在商店中搜索 Tampermonkey。</p>
+        </div>
+        <div class="demo stores">
+          <a class="store" href="https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo" target="_blank" rel="noopener"><span>Chrome 商店</span><i aria-hidden="true">↗</i></a>
+          <a class="store" href="https://microsoftedge.microsoft.com/addons/detail/tampermonkey/iikmkjmpaadaobahmlepeloendndfphd" target="_blank" rel="noopener"><span>Edge 加载项</span><i aria-hidden="true">↗</i></a>
+          <a class="store" href="https://addons.mozilla.org/firefox/addon/tampermonkey/" target="_blank" rel="noopener"><span>Firefox 附加组件</span><i aria-hidden="true">↗</i></a>
+          <a class="store" href="https://www.tampermonkey.net/" target="_blank" rel="noopener"><span>油猴官网</span><i aria-hidden="true">↗</i></a>
+        </div>
       </li>
 
-      <li>
-        <h3>安装脚本</h3>
-        <p>点击页面上方的「一键安装脚本」，按提示完成安装。若浏览器未弹出安装页，改为点击「复制脚本代码」，再到油猴管理面板新建脚本并粘贴内容。</p>
-      </li>
-
-      <li>
-        <h3>在视频网站匹配域名</h3>
-        <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后脚本才会在该网站生效。</p>
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>安装脚本</h3>
+          <p>点击页面顶部的「一键安装脚本」，按提示完成安装。若浏览器未弹出安装页，改为点击「复制脚本代码」，再到油猴管理面板新建脚本并粘贴内容。</p>
+        </div>
         <div class="demo" aria-hidden="true">
-          <div class="menu">
+          <pre class="mini-script"><span class="k">// ==UserScript==</span>
+<span class="k">// @name</span>     一起看 · 视频同步
+<span class="k">// @version</span>  <span class="v">{{VERSION}}</span>
+<span class="k">// @author</span>   IYIAK
+<span class="k">// ==/UserScript==</span><span class="caret"></span></pre>
+        </div>
+      </li>
+
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>在视频网站匹配域名</h3>
+          <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后脚本才会在该网站生效。</p>
+          <p class="note">若找不到油猴图标，可能收在右上角的拼图（扩展程序）图标里，点开即可看到。</p>
+        </div>
+        <div class="demo" aria-hidden="true">
+          <div class="browser">
+            <div class="addressbar">
+              <svg class="ab-lock" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#8a93a6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              <span class="ab-url">www.bilibili.com</span>
+              <span class="ab-exts">
+                <span class="ab-tm"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#222"/><circle cx="7.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="16.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="7.5" cy="17.2" r="3.3" fill="#222"/><circle cx="16.5" cy="17.2" r="3.3" fill="#222"/></svg></span>
+                <span class="ab-ext"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg></span>
+              </span>
+            </div>
+            <div class="menu">
             <div class="menu-head">
               <span class="menu-name">一起看 · 视频同步</span>
               <span class="menu-switch"></span>
@@ -76,13 +229,54 @@
               <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
               <span>查看已匹配域名</span>
             </div>
+            </div>
           </div>
         </div>
       </li>
 
-      <li>
-        <h3>打开面板，创建房间</h3>
-        <p>点击油猴菜单里的「打开一起看」呼出面板，填写昵称后点击「创建房间」，得到一个 6 位房间码。</p>
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>呼出面板</h3>
+          <p>需要时，点击浏览器右上角的油猴图标，在菜单里点「打开一起看」，面板即出现在页面上。</p>
+          <p class="note">未进入房间时，页面右下角不显示圆形按钮，需要通过这个菜单打开面板；进房间后点圆形按钮即可随时唤出。</p>
+        </div>
+        <div class="demo" aria-hidden="true">
+          <div class="browser">
+            <div class="addressbar">
+              <svg class="ab-lock" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#8a93a6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+              <span class="ab-url">www.bilibili.com</span>
+              <span class="ab-exts">
+                <span class="ab-tm"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#222"/><circle cx="7.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="16.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="7.5" cy="17.2" r="3.3" fill="#222"/><circle cx="16.5" cy="17.2" r="3.3" fill="#222"/></svg></span>
+                <span class="ab-ext"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M20.5 11H19V7c0-1.1-.9-2-2-2h-4V3.5C13 2.12 11.88 1 10.5 1S8 2.12 8 3.5V5H4c-1.1 0-1.99.9-1.99 2v3.8H3.5c1.49 0 2.7 1.21 2.7 2.7s-1.21 2.7-2.7 2.7H2V20c0 1.1.9 2 2 2h3.8v-1.5c0-1.49 1.21-2.7 2.7-2.7 1.49 0 2.7 1.21 2.7 2.7V22H17c1.1 0 2-.9 2-2v-4h1.5c1.38 0 2.5-1.12 2.5-2.5S21.88 11 20.5 11z"/></svg></span>
+              </span>
+            </div>
+            <div class="menu">
+              <div class="menu-head">
+                <span class="menu-name">一起看 · 视频同步</span>
+                <span class="menu-switch"></span>
+              </div>
+              <div class="menu-row on">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
+                <span>打开一起看</span>
+              </div>
+              <div class="menu-row">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v4M19 4l-8 8"/><path d="M5 14v5h5"/></svg>
+                <span>离开房间</span>
+              </div>
+              <div class="menu-row">
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg>
+                <span>查看已匹配域名</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </li>
+
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>填写昵称，创建房间</h3>
+          <p>在面板里填写昵称后点击「创建房间」，得到一个 4 位房间码。</p>
+        </div>
         <div class="demo" aria-hidden="true">
           <div class="mini-panel">
             <p class="mini-title">一起看</p>
@@ -99,14 +293,16 @@
         </div>
       </li>
 
-      <li>
-        <h3>把房间码发给朋友</h3>
-        <p>对方装好同一份脚本后，在视频页输入房间码即可加入；之后由房主控制进度，双方自动对齐。</p>
+      <li class="reveal">
+        <div class="step-copy">
+          <h3>把房间码发给朋友</h3>
+          <p>对方装好同一份脚本后，在视频页输入房间码即可加入；之后由房主控制进度，所有人自动对齐。</p>
+        </div>
         <div class="demo" aria-hidden="true">
-          <div class="mini-code">7 2 K 9 Q M</div>
+          <div class="mini-code"><span>7</span><span>2</span><span>K</span><span>9</span></div>
           <div class="mini-people">
             <div><span class="dot"></span>阿凯 <b>12:34</b></div>
-            <div><span class="dot"></span>小林 <b>12:33</b></div>
+            <div><span class="dot"></span>小林 <b>12:34</b></div>
           </div>
         </div>
       </li>
@@ -114,42 +310,37 @@
     </ol>
   </section>
 
-  <!-- 3 · What it does — a two-column list, deliberately without card chrome -->
-  <section class="facts">
-    <h2>它能做什么</h2>
-    <dl class="pairs">
-      <div><dt>进度自动对齐</dt><dd>房主拖动进度条时，成员端同步跳转，误差通常在 0.3 秒以内。</dd></div>
-      <div><dt>播放与暂停同步跟随</dt><dd>房主暂停时成员端同步暂停，房主播放时成员端同步继续。</dd></div>
-      <div><dt>缓冲时全房间等待</dt><dd>有人缓冲时全房间自动暂停等待，房主可点击「不等了，继续播放」继续。</dd></div>
-      <div><dt>跨站观看同一内容</dt><dd>页面地址不同也能观看同一内容，点击「强制同步」即按房主的进度播放。</dd></div>
-      <div><dt>同一浏览器仅一个标签页同步</dt><dd>避免多个标签页相互冲突、来回拖动进度。</dd></div>
-      <div><dt>6 位房间码加入房间</dt><dd>创建房间后获得房间码，将其发送给成员，输入即可加入；同步服务器地址已写入脚本。</dd></div>
-    </dl>
-  </section>
-
-  <!-- 4 · Supported sites -->
-  <section class="facts">
-    <h2>支持哪些站点</h2>
-    <p class="sites">
-      <span class="chip">bilibili</span>
-      <span class="chip">稀饭动漫</span>
-      <span class="chip">次元城</span>
-      <span class="chip">agedm</span>
-      <span class="chip">agefans</span>
-    </p>
-    <p class="note">其它站点同样适用：在油猴菜单中点击「匹配当前域名」，即可完成匹配。</p>
-  </section>
-
   <!-- 5 · FAQ -->
-  <section class="facts">
-    <h2>常见问题</h2>
-    <dl class="pairs">
-      <div><dt>提示「连不上同步服务」怎么办</dt><dd>多数情况是网络原因：开启代理后重试；或参照安装教程的附录，自行搭建后端并替换地址。</dd></div>
-      <div><dt>右下角没有圆形按钮怎么办</dt><dd>多数情况是尚未在该网站完成「匹配」（油猴菜单中点击「匹配当前域名」）；未进入房间时页面也不显示圆形按钮。</dd></div>
-      <div><dt>如何彻底移除</dt><dd>打开油猴管理面板，删除「一起看 · 视频同步」这一行，页面随即恢复原样。</dd></div>
-    </dl>
+  <section class="block faq-block">
+    <div class="head reveal">
+      <p class="kicker">遇到问题时</p>
+      <h2>常见问题</h2>
+    </div>
+    <div class="faq reveal">
+      <details open>
+        <summary>提示「连不上同步服务」怎么办</summary>
+        <p>多数情况是网络原因：开启代理后重试；或参照安装教程的附录，自行搭建后端并替换地址。</p>
+      </details>
+      <details>
+        <summary>右下角没有圆形按钮怎么办</summary>
+        <p>多数情况是尚未在该网站完成「匹配」（油猴菜单中点击「匹配当前域名」）；未进入房间时页面也不显示圆形按钮。</p>
+      </details>
+      <details>
+        <summary>如何彻底移除</summary>
+        <p>打开油猴管理面板，删除「一起看 · 视频同步」这一行，页面随即恢复原样。</p>
+      </details>
+    </div>
   </section>
 
-  <p class="tail">完整安装步骤见 <a href="{{GUIDE_URL}}">安装教程</a>，源码见 <a href="https://github.com/IYIAK/watch-party">GitHub</a>。</p>
+  <!-- 6 · Finale: a projector beam falling on the last call to action -->
+  <section class="finale reveal">
+    <h2>今晚，<em>一起看。</em></h2>
+    <p>装好脚本，挑一部片子，把 4 位房间码发到群里——两个人能看，一群人也行。</p>
+    <div class="actions">
+      <a class="btn primary" href="{{SCRIPT_URL}}">一键安装脚本</a>
+      <a class="btn" href="{{GUIDE_URL}}">阅读安装教程</a>
+    </div>
+    <p class="tail">完整安装步骤见 <a href="{{GUIDE_URL}}">安装教程</a>，源码见 <a href="https://github.com/IYIAK/watch-party">GitHub</a>。</p>
+  </section>
 
 </div>

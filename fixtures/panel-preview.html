@@ -56,7 +56,7 @@
 
       // ---- 桩掉 Worker 请求 ----
       var ROOM_STATE = {
-        roomId: "HT296M",
+        roomId: "HT2M",
         hostParticipantId: "p_host_demo_0001",
         participants: [
           {
@@ -131,12 +131,12 @@
           };
           if (method === "POST" && /\/rooms$/.test(url)) {
             return answer(function () {
-              return json({ roomId: "DEMO01", participantId: "p_host_demo_0001", role: "host", hostToken: "h_demo" });
+              return json({ roomId: "DEMO", participantId: "p_host_demo_0001", role: "host", hostToken: "h_demo" });
             });
           }
           if (method === "POST" && /\/join$/.test(url)) {
             return answer(function () {
-              return json({ roomId: "DEMO01", participantId: "p_guest_demo_0002", role: "participant" });
+              return json({ roomId: "DEMO", participantId: "p_guest_demo_0002", role: "participant" });
             });
           }
           if (method === "POST") return answer(function () { return json({ ok: true }); });
@@ -157,8 +157,8 @@
           "watch-party-state-v1",
           JSON.stringify(
             asParticipant
-              ? { roomId: "HT296M", participantId: "p_guest_demo_000" + identity, role: "participant" }
-              : { roomId: "HT296M", participantId: "p_host_demo_000" + identity, role: "host", hostToken: "h_demo" }
+              ? { roomId: "HT2M", participantId: "p_guest_demo_000" + identity, role: "participant" }
+              : { roomId: "HT2M", participantId: "p_host_demo_000" + identity, role: "host", hostToken: "h_demo" }
           )
         );
         // ?keepSettings=1 skips the settings write so the script's own defaults

@@ -27,7 +27,7 @@ test("createRoom returns a host token and persists host participant", async () =
   const { service, db } = makeService();
   const result = await service.createRoom({ displayName: "Alice" });
 
-  assert.match(result.roomId, /^[A-Z0-9]{6}$/);
+  assert.match(result.roomId, /^[A-Z0-9]{4}$/);
   assert.ok(result.participantId.startsWith("p_"));
   assert.ok(result.hostToken.startsWith("h_"));
   assert.equal(result.role, "host");
@@ -35,6 +35,22 @@ test("createRoom returns a host token and persists host participant", async () =
   const room = await db.prepare("SELECT * FROM rooms WHERE id = ?").bind(result.roomId).first();
   assert.equal(room.host_participant_id, result.participantId);
   assert.equal(room.host_token_hash, `hash(${result.hostToken})`);
+});
+
+test("display names require a value and allow 20 Unicode characters", async () => {
+  const { service } = makeService();
+  const twentyCjk = "界".repeat(20);
+  const created = await service.createRoom({ displayName: `  ${twentyCjk}  ` });
+  const state = await service.getState(created.roomId);
+  assert.equal(state.participants[0].displayName, twentyCjk);
+  await assert.rejects(
+    () => service.joinRoom(created.roomId, { displayName: "界".repeat(21) }),
+    (error) => error instanceof HttpError && error.status === 400
+  );
+  await assert.rejects(
+    () => service.joinRoom(created.roomId, { displayName: "   " }),
+    (error) => error instanceof HttpError && error.status === 400
+  );
 });
 
 test("a null currentTime means \"position unknown\" and keeps the last known one", async () => {
@@ -102,6 +118,40 @@ test("leaving a room removes the participant row", async () => {
   // client fires this off without waiting for it.
   await service.leaveRoom(host.roomId, { participantId: guest.participantId });
   assert.equal((await service.getState(host.roomId)).participants.length, 1);
+});
+
+test("leaving as the host requires the private host token", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+
+  await assert.rejects(
+    () => service.leaveRoom(host.roomId, { participantId: host.participantId }),
+    (error) => error instanceof HttpError && error.status === 403
+  );
+  await service.leaveRoom(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken
+  });
+  assert.equal((await service.getState(host.roomId)).participants.length, 0);
+});
+
+test("a delayed report from an older syncing tab is ignored", async () => {
+  const { service } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+
+  await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: 500, duration: 3600, paused: false, ownerEpoch: 200 }
+  });
+  const result = await service.updateState(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken,
+    state: { currentTime: 10, duration: 3600, paused: false, ownerEpoch: 100 }
+  });
+
+  assert.equal(result.ignored, true);
+  assert.equal((await service.getState(host.roomId)).participants[0].state.currentTime, 500);
 });
 
 test("a participant silent for a long stretch drops out of the roster", async () => {
@@ -362,8 +412,20 @@ test("overlong descriptive fields are truncated, not rejected", async () => {
 test("unknown room returns 404", async () => {
   const { service } = makeService();
   await assert.rejects(
-    () => service.getState("ZZZZZZ"),
+    () => service.getState("ZZZZ"),
     (error) => error instanceof HttpError && error.status === 404
+  );
+});
+
+test("room IDs must be exactly four characters", async () => {
+  const { service } = makeService();
+  await assert.rejects(
+    () => service.getState("ZZZ"),
+    (error) => error instanceof HttpError && error.status === 400
+  );
+  await assert.rejects(
+    () => service.getState("ZZZZZ"),
+    (error) => error instanceof HttpError && error.status === 400
   );
 });
 

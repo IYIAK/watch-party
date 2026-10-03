@@ -131,6 +131,7 @@ If no controllable video is found, the UI should say that the player was not det
 ## Backend API
 
 All API responses are JSON. The Worker must send permissive CORS headers for the userscript origins.
+Room codes are four letters or digits.
 
 ### `POST /rooms`
 
@@ -148,7 +149,7 @@ Response:
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "participantId": "p_...",
   "hostToken": "h_..."
 }
@@ -170,7 +171,7 @@ Response:
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "participantId": "p_...",
   "role": "participant"
 }
@@ -214,7 +215,7 @@ Response:
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "hostParticipantId": "p_...",
   "participants": [
     {

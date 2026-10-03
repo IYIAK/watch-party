@@ -9,3 +9,5 @@ site/wrangler.home.toml
 site/config.json
 # 交接文档：含真实域名 / Worker 名 / D1 id，只给本地 agent 看
 HANDOFF.md
+# agent 工作区：交接文档、memory 日志里同样含真实域名，别被 git add -A 带上
+.workbuddy/

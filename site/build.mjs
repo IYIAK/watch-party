@@ -304,14 +304,34 @@ const homeBody = readFileSync(join(here, "src", "home.html"), "utf8").replace(/^
 // ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
-const guideBody = `<article class="doc">\n${renderMarkdown(doc)}\n</article>`;
+// Table of contents for the guide, generated from the same headings the
+// renderer turns into anchors — so every entry already has a matching id.
+// Code fences are skipped: they are full of `#` shell comments.
+function buildToc(md) {
+  const items = [];
+  let fence = false;
+  for (const line of md.split("\n")) {
+    if (/^\s*```/.test(line)) { fence = !fence; continue; }
+    if (fence) continue;
+    const m = line.match(/^(#{2,3})\s+(.*)$/);
+    if (!m) continue;
+    items.push({ level: m[1].length, text: m[2].trim(), id: slug(m[2].trim()) });
+  }
+  if (items.length < 3) return "";
+  const links = items
+    .map((it) => `      <a class="toc l${it.level}" href="#${it.id}">${escapeHtml(it.text)}</a>`)
+    .join("\n");
+  return `<nav class="doc-nav" aria-label="目录">\n  <p class="toc-h">目录</p>\n${links}\n  </nav>\n`;
+}
+
+const guideBody = `${buildToc(doc)}<article class="doc">\n${renderMarkdown(doc)}\n</article>`;
 
 const pages = [
   {
     file: join(outRoot, "home", "index.html"),
     html: renderPage({
       title: "一起看 · 视频同步",
-      description: "和朋友异地看同一个视频，进度自动对齐。约 10 分钟装好，不需要懂编程。",
+      description: "和朋友异地看同一个视频，进度自动对齐。几分钟装好，不需要懂编程。",
       bodyHtml: homeBody,
       activeTab: "home",
     }),

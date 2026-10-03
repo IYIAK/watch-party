@@ -131,6 +131,7 @@ MVP 使用 HTTP 轮询：
 ## 后端 API
 
 所有 API 响应都是 JSON。Worker 需要给油猴脚本来源返回宽松的 CORS 头。
+房间码由 4 个字母或数字组成。
 
 ### `POST /rooms`
 
@@ -148,7 +149,7 @@ MVP 使用 HTTP 轮询：
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "participantId": "p_...",
   "hostToken": "h_..."
 }
@@ -170,7 +171,7 @@ MVP 使用 HTTP 轮询：
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "participantId": "p_...",
   "role": "participant"
 }
@@ -214,7 +215,7 @@ MVP 使用 HTTP 轮询：
 
 ```json
 {
-  "roomId": "AB12CD",
+  "roomId": "AB12",
   "hostParticipantId": "p_...",
   "participants": [
     {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.10.9
+// @version      0.11.1
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -76,6 +76,7 @@
     // Bounded on purpose: the winner is whichever answers first, so this is only
     // ever as slow as the faster of the two probes.
     transportWaitMs: 1500,
+    requestTimeoutMs: 15000,
     // One-shot handoff for 「跳转到一起看的视频」: the tab we open for the shared
     // video is the one the user meant, so it may take over. A plain new tab never
     // matches it and stays passive.
@@ -306,10 +307,18 @@
   // direction: it disables extrapolation instead of producing a wild guess.
   function reportAgeSec(roomState, participant, maxSec) {
     const serverNow = Date.parse((roomState && roomState.serverTime) || "");
-    const reportedAt = Date.parse((participant && participant.updatedAt) || "");
+    const sampledAt = Date.parse((participant && participant.state && participant.state.sampledAt) || "");
+    const reportedAt = Number.isFinite(sampledAt)
+      ? sampledAt
+      : Date.parse((participant && participant.updatedAt) || "");
     if (!Number.isFinite(serverNow) || !Number.isFinite(reportedAt)) return 0;
     const age = (serverNow - reportedAt) / 1000;
     return age > 0 ? Math.min(age, maxSec) : 0;
+  }
+
+  function responseTransitSec(roomState) {
+    const rtt = Number(roomState && roomState.__clientRttMs);
+    return Number.isFinite(rtt) && rtt > 0 ? Math.min(rtt / 2000, CONFIG.reportAgeMaxSec) : 0;
   }
 
   // ===========================================================================
@@ -340,6 +349,7 @@
   const apiClient = (() => {
     let lastWarnAt = 0;
     let warned = false;
+    let serverClockOffsetMs = null;
     // One console line per failure burst: when sync goes unavailable, this is the
     // only place that shows *why* (blocked by CSP, refused by the manager, DNS,
     // timeout, HTTP status — plus which transport was used and how long it took).
@@ -362,6 +372,19 @@
       return error;
     }
 
+    function noteServerTime(serverTime, startedAt, receivedAt) {
+      const serverMs = Date.parse(serverTime || "");
+      if (!Number.isFinite(serverMs)) return;
+      const start = Number.isFinite(startedAt) ? startedAt : Date.now();
+      const end = Number.isFinite(receivedAt) ? receivedAt : Date.now();
+      serverClockOffsetMs = serverMs - (start + end) / 2;
+    }
+
+    function serverTimestamp() {
+      if (!Number.isFinite(serverClockOffsetMs)) return null;
+      return new Date(Date.now() + serverClockOffsetMs).toISOString();
+    }
+
     function gmRequest(url, init) {
       return new Promise((resolve, reject) => {
         GM_xmlhttpRequest({
@@ -369,7 +392,7 @@
           url,
           headers: init.headers,
           data: init.body,
-          timeout: 15000,
+          timeout: CONFIG.requestTimeoutMs,
           onload: (r) =>
             resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, text: r.responseText || "" }),
           onerror: () => reject(new Error("onerror")),
@@ -453,6 +476,17 @@
       );
     }
 
+    async function fetchRequest(url, init) {
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), CONFIG.requestTimeoutMs) : null;
+      try {
+        const raw = await fetch(url, controller ? { ...init, signal: controller.signal } : init);
+        return { ok: raw.ok, status: raw.status, text: await raw.text() };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
     async function request(method, path, body, opts) {
       const silent = Boolean(opts && opts.silent);
       const started = Date.now();
@@ -487,8 +521,7 @@
           if (t === "gm") {
             res = await gmRequest(url, init);
           } else {
-            const raw = await fetch(url, init);
-            res = { ok: raw.ok, status: raw.status, text: await raw.text() };
+            res = await fetchRequest(url, init);
           }
           used = t;
           failStreak[t] = 0;
@@ -571,11 +604,18 @@
       // Tell the server we are gone, so coming back does not leave an "offline
       // ghost" of ourselves in the roster. Best effort: leaving must not depend on
       // the network, and the server also drops long-silent participants anyway.
-      leaveRoom: (roomId, participantId) =>
-        request("POST", `/rooms/${encodeURIComponent(roomId)}/leave`, { participantId }, { silent: true }),
+      leaveRoom: (roomId, participantId, hostToken) =>
+        request(
+          "POST",
+          `/rooms/${encodeURIComponent(roomId)}/leave`,
+          { participantId, ...(hostToken ? { hostToken } : {}) },
+          { silent: true }
+        ),
       reportState: (roomId, payload) =>
         request("POST", `/rooms/${encodeURIComponent(roomId)}/state`, payload),
       fetchState: (roomId) => request("GET", `/rooms/${encodeURIComponent(roomId)}/state`),
+      noteServerTime,
+      serverTimestamp,
       // Fire-and-forget: measures both transports and warms the winner, so the
       // user's first click does not pay for a cold connection.
       warmup: () => {
@@ -695,6 +735,12 @@
 
     function newId() {
       return Math.random().toString(36).slice(2) + Date.now().toString(36);
+    }
+
+    function newEpoch() {
+      // A monotonic-enough generation lets the server reject an old request that
+      // was sent by the previous syncing tab but arrived after a handoff.
+      return Date.now() * 1000 + Math.floor(Math.random() * 1000);
     }
 
     // Same page ignoring query/hash: the jump handoff records a URL and the new
@@ -847,13 +893,17 @@
       isOwner,
       ownerOf,
       current: read,
+      ownerEpoch(roomId) {
+        const rec = read();
+        return rec && rec.roomId === roomId && Number.isFinite(Number(rec.epoch)) ? Number(rec.epoch) : 0;
+      },
       // See confirmTabIdentity: a duplicated tab has to notice it is a copy before
       // it may inherit anything.
       confirmTabIdentity,
       // Explicit takeover: from now on this tab reports, and every other tab
       // (any origin) sees it and stands down.
       claim(roomId) {
-        write({ roomId, ownerTabId: tabId, at: Date.now() });
+        write({ roomId, ownerTabId: tabId, epoch: newEpoch(), at: Date.now() });
         startHeartbeat(roomId);
       },
       // Give the job up. The room id stays in the record so latecomers can tell
@@ -1310,7 +1360,13 @@
       // Cross-video asks are meaningless — unless the member forced sync, in
       // which case they are explicitly treating the two pages as one video.
       if (!settings.get().forceSync && !videoIdentity.isSameVideo(local, host.state)) return;
-      const target = hostPositionAt(host.state, reportAgeSec(lastRoomState, host, CONFIG.reportAgeMaxSec));
+      const target = hostPositionAt(
+        host.state,
+        Math.min(
+          CONFIG.reportAgeMaxSec,
+          reportAgeSec(lastRoomState, host, CONFIG.reportAgeMaxSec) + responseTransitSec(lastRoomState)
+        )
+      );
       if (!worthRequesting(target, local.currentTime, CONFIG.seekRequestMinDriftSec)) return;
       pendingRequest = { id: newRequestId(), time: local.currentTime, at: Date.now() };
     }
@@ -1335,11 +1391,15 @@
       if (!ownsSync(room)) return;
       const state = localState();
       if (!state) return;
+      const sampledAt = apiClient.serverTimestamp();
+      if (sampledAt) state.sampledAt = sampledAt;
       // Co-op fields ride along with the normal report.
       if (pendingRequest && Date.now() - pendingRequest.at < CONFIG.seekRequestTtlMs) {
         state.seekRequest = { id: pendingRequest.id, time: pendingRequest.time };
       }
       if (room.role === "host" && skipWaitActive) state.skipWait = true;
+      const ownerEpoch = syncOwner.ownerEpoch(room.roomId);
+      if (ownerEpoch) state.ownerEpoch = ownerEpoch;
       // Members can declare that they are following across a different page, so
       // the host can honour their jump requests and say why they are following.
       if (room.role !== "host" && settings.get().forceSync) state.forceSync = true;
@@ -1400,24 +1460,42 @@
       passiveTimer = null;
     }
 
-    let fetchInFlight = false;
+    let fetchInFlight = null; // { roomId, participantId, seq }
 
     async function fetchNow() {
       // A slow response is already on its way; stacking another one on top would
       // only make the backlog worse (and a newer result does not exist yet).
-      if (fetchInFlight) return;
       const room = roomStore.get();
       if (!room) return;
+      if (
+        fetchInFlight &&
+        fetchInFlight.roomId === room.roomId &&
+        fetchInFlight.participantId === room.participantId
+      ) return;
       // Re-check who owns sync before doing anything else: if another tab took
       // over, this poll is what stands us down even when the notice was lost.
       reconcileOwnership(room);
-      fetchInFlight = true;
       const seq = ++fetchSeq;
+      const request = { roomId: room.roomId, participantId: room.participantId, seq };
+      fetchInFlight = request;
+      const startedAt = Date.now();
       try {
         const data = await apiClient.fetchState(room.roomId);
         // A slow earlier response must not overwrite a newer one: several callers
         // (the poll loop, visibilitychange, the standby watchdog) can overlap.
-        if (seq !== fetchSeq) return;
+        const current = roomStore.get();
+        if (
+          seq !== fetchSeq ||
+          !current ||
+          current.roomId !== request.roomId ||
+          current.participantId !== request.participantId
+        ) return;
+        // `serverTime` is captured when the Worker builds the response. Half the
+        // measured round trip estimates the time spent between that moment and
+        // this browser receiving it, which matters when the API is slow.
+        const receivedAt = Date.now();
+        data.__clientRttMs = Math.max(0, receivedAt - startedAt);
+        apiClient.noteServerTime(data.serverTime, startedAt, receivedAt);
         lastRoomState = data;
         // Someone just joined: push a fresh position immediately instead of
         // letting them align to a stale one (and possibly call us offline).
@@ -1437,7 +1515,7 @@
       } catch (err) {
         onError(err.message === "sync-unavailable" ? "sync-unavailable" : err.message);
       } finally {
-        fetchInFlight = false;
+        if (fetchInFlight === request) fetchInFlight = null;
       }
     }
 
@@ -1501,7 +1579,10 @@
       const host = hostEntry(roomState);
       if (!host || !host.state || typeof host.state.currentTime !== "number") return;
 
-      const ageSec = reportAgeSec(roomState, host, CONFIG.reportAgeMaxSec);
+      const ageSec = Math.min(
+        CONFIG.reportAgeMaxSec,
+        reportAgeSec(roomState, host, CONFIG.reportAgeMaxSec) + responseTransitSec(roomState)
+      );
       // The server clock is authoritative when available; the local-clock
       // comparison stays only as a fallback for an older Worker.
       const hostFresh = roomState.serverTime
@@ -1620,15 +1701,16 @@
       const waiting = waitingParticipant(roomState, room.participantId, skip, CONFIG.stallFreshSec);
       const local = adapter.getState();
       if (!local) return;
+      const canControl = ownsSync(room);
       waitingFor = waiting;
       if (waiting) {
-        if (!local.paused) {
+        if (canControl && !local.paused) {
           adapter.pause();
           pausedForWait = true;
         }
         return;
       }
-      if (pausedForWait) {
+      if (canControl && pausedForWait) {
         pausedForWait = false;
         adapter.play();
       }
@@ -1696,6 +1778,8 @@
     }
 
     function acceptSeekRequest(id, auto) {
+      const room = roomStore.get();
+      if (!room || room.role !== "host" || !ownsSync(room)) return false;
       const req = findSeekRequest(lastRoomState);
       if (!req || (id && req.id !== id)) return false;
       rememberRequest(req.id);
@@ -1815,6 +1899,10 @@
 
     function stop() {
       running = false;
+      // Invalidate any response that is still in flight. Its finally block uses
+      // identity checks, so a new room can start a fresh request safely.
+      fetchSeq += 1;
+      fetchInFlight = null;
       // Drop the media-event hook too: a tab that is not reporting must never
       // react to its own play/pause/seek events. start() registers it again.
       adapter.onChange(() => {});
@@ -1986,7 +2074,11 @@
       jumpToHost() {
         const host = hostEntry(lastRoomState);
         if (host && host.state && typeof host.state.currentTime === "number") {
-          seekTo(host.state.currentTime);
+          const age = Math.min(
+            CONFIG.reportAgeMaxSec,
+            reportAgeSec(lastRoomState, host, CONFIG.reportAgeMaxSec) + responseTransitSec(lastRoomState)
+          );
+          seekTo(hostPositionAt(host.state, age) ?? host.state.currentTime);
           markManualSeek();
         }
       },
@@ -2087,6 +2179,10 @@
         display: flex; align-items: center; gap: 8px; }
       #wp-panel h4 .wp-h-actions { margin-left: auto; display: flex; gap: 6px; }
       #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 0 0 6px; }
+      .wp-connection { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        margin: 7px 0 9px; padding: 7px 9px; border-radius: 9px; font-size: 11.5px;
+        color: #9a3412; background: #fff7ed; border: 1px solid rgba(234,88,12,.18); }
+      .wp-connection button { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
       #wp-panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
 
       /* ---- inputs ---- */
@@ -2143,6 +2239,8 @@
       .wp-dot.fresh { background: #22c07a; box-shadow: 0 0 7px rgba(34,192,122,.55); }
       .wp-dot.stale { background: #c3c9d4; }
       .wp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wp-input-error { color: #c2410c; font-size: 11px; margin: -4px 0 4px; }
+      input.wp-invalid { border-color: #dc6b55 !important; box-shadow: 0 0 0 2px rgba(220,107,85,.12); }
       .wp-name.wp-mismatch { color: #c2410c; }
       .wp-mismatch-tag { color: #c2410c; font-size: 10.5px; margin-left: 5px; }
       .wp-time { color: #6b7280; font-variant-numeric: tabular-nums;
@@ -2280,6 +2378,8 @@
     let toastShownKey = "";
     let noticeText = "";
     let noticeTone = "info";
+    let connectionState = "online";
+    let displayNameDraft = "";
 
     let collapseTimer = null;
     let noticeTimer = null;
@@ -2354,16 +2454,40 @@
           updatePill(handlers.getRoomState());
         })
       );
+      modeList.querySelectorAll(".wp-opt").forEach((opt, index) => {
+        opt.id = `wp-mode-opt-${opt.dataset.value}`;
+        opt.tabIndex = -1;
+      });
+      modeList.addEventListener("keydown", (ev) => {
+        const opts = [...modeList.querySelectorAll(".wp-opt")];
+        const current = opts.indexOf(document.activeElement);
+        if (ev.key === "Escape") { ev.preventDefault(); closeModeMenu(); modeTrigger()?.focus(); return; }
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); document.activeElement?.click(); return; }
+        if (ev.key === "ArrowDown" || ev.key === "ArrowUp") {
+          ev.preventDefault(); const delta = ev.key === "ArrowDown" ? 1 : -1;
+          opts[(current + delta + opts.length) % opts.length]?.focus();
+        }
+      });
 
       fab.addEventListener("click", toggle);
-      root.addEventListener("mousemove", scheduleCollapse);
+      ["mousemove", "pointerdown", "touchstart", "keydown", "focusin", "input", "change"].forEach((type) =>
+        root.addEventListener(type, scheduleCollapse, { passive: type === "touchstart" })
+      );
       // Close the mode dropdown when clicking anywhere else (or pressing Esc).
       root.addEventListener("click", (ev) => {
         if (ev.target.closest && ev.target.closest(".wp-select, .wp-listbox")) return;
         closeModeMenu();
       });
       root.addEventListener("keydown", (ev) => {
-        if (ev.key === "Escape") closeModeMenu();
+        if (ev.key === "Escape") { closeModeMenu(); return; }
+        const trigger = ev.target.closest && ev.target.closest(".wp-select-trigger");
+        if (!trigger) return;
+        if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); toggleModeMenu(); return; }
+        if (!modeList || !modeList.classList.contains("open")) return;
+        const opts = [...modeList.querySelectorAll(".wp-opt")];
+        const current = opts.findIndex((o) => o.getAttribute("aria-selected") === "true");
+        const next = ev.key === "ArrowDown" ? (current + 1) % opts.length : ev.key === "ArrowUp" ? (current - 1 + opts.length) % opts.length : -1;
+        if (next >= 0) { ev.preventDefault(); opts[next].focus(); }
       });
       applyFullscreen();
     }
@@ -2413,6 +2537,8 @@
       paintMode(settings.get().displayMode);
       modeList.classList.add("open");
       placeModeMenu();
+      const selected = modeList.querySelector('.wp-opt[aria-selected="true"]');
+      if (selected) selected.focus();
       if (fab) fab.classList.add("tucked");
       scheduleCollapse();
     }
@@ -2439,6 +2565,8 @@
       if (root) root.remove();
       root = fab = panel = body = pill = modeList = null;
       toast = toastText = toastActions = null;
+      displayNameDraft = "";
+      connectionState = "online";
     }
 
     function open() {
@@ -2758,6 +2886,11 @@
       fab.classList.toggle("error", kind === "error");
     }
 
+    function setConnectionState(state) {
+      connectionState = state === "offline" ? "offline" : "online";
+      if (root && panel && panel.classList.contains("open")) render();
+    }
+
     function updatePill(roomState) {
       if (!pill) return;
       const mode = settings.get().displayMode;
@@ -2787,33 +2920,66 @@
       body.innerHTML = `
         <h4>一起看</h4>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
-        <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(cfg.displayName)}"></div>
+        <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
+        <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
         <div class="row">
           <button class="action" id="wp-create" style="width:100%">创建房间</button>
         </div>
         <div class="row">
-          <input id="wp-join-code" placeholder="房间码" maxlength="12" style="text-transform:uppercase">
+          <input id="wp-join-code" placeholder="房间码" maxlength="4" minlength="4" style="text-transform:uppercase">
           <button class="ghost" id="wp-join">加入</button>
         </div>
       `;
-      body.querySelector("#wp-name").addEventListener("input", (e) =>
-        settings.update({ displayName: e.target.value })
-      );
+      const nameInput = body.querySelector("#wp-name");
+      const nameError = body.querySelector("#wp-name-error");
+      const validateName = () => {
+        const value = Array.from(nameInput.value.trim()).slice(0, 20).join("");
+        nameInput.value = value;
+        const invalid = !value;
+        nameInput.classList.toggle("wp-invalid", invalid);
+        nameError.hidden = !invalid;
+        return !invalid;
+      };
+      nameInput.addEventListener("input", (e) => {
+        e.target.value = Array.from(e.target.value).slice(0, 20).join("");
+        displayNameDraft = e.target.value;
+        settings.update({ displayName: e.target.value });
+        if (e.target.value.trim()) validateName();
+      });
+      setTimeout(() => nameInput.focus(), 0);
       // Proof that the click actually reached the button. If the user reports
       // "clicking does nothing" and this never appears, something is covering the
       // panel (see the overlay probe in open()) — not a logic bug.
       body.querySelector("#wp-create").addEventListener("click", (ev) => {
         console.info("[一起看] 已点击「创建房间」");
+        if (!validateName()) return;
         setBusy(ev.currentTarget, "创建中…");
         handlers.create();
       });
       body.querySelector("#wp-join").addEventListener("click", (ev) => {
-        const code = body.querySelector("#wp-join-code").value.trim().toUpperCase();
+        if (!validateName()) return;
+        const codeInput = body.querySelector("#wp-join-code");
+        const code = codeInput.value.trim().toUpperCase();
         console.info("[一起看] 已点击「加入」，房间码:", code);
-        if (!code) return;
+        if (!/^[A-Z0-9]{4}$/.test(code)) {
+          codeInput.focus();
+          setNotice("请输入4位房间码", false, "error", true);
+          return;
+        }
         setBusy(ev.currentTarget, "加入中…");
         handlers.join(code);
       });
+    }
+
+    function copyFallback(text) {
+      try {
+        const area = document.createElement("textarea");
+        area.value = text; area.setAttribute("readonly", "");
+        area.style.cssText = "position:fixed;left:-9999px;top:0";
+        document.body.appendChild(area); area.select();
+        const ok = document.execCommand("copy"); area.remove();
+        setNotice(ok ? "房间码已复制" : "请手动复制房间码");
+      } catch { setNotice("请手动复制房间码"); }
     }
 
     function renderInRoom(roomState) {
@@ -2911,6 +3077,19 @@
             room.role === "host" ? '<button class="ghost" id="wp-skip-wait">不等了，继续播放</button>' : ""
           }</div>`
         : "";
+      const connectionBar = connectionState === "offline"
+        ? `<div class="wp-connection" role="status"><span>同步连接中断</span><button class="ghost" id="wp-retry">重试</button></div>`
+        : "";
+      const followerControls = room.role === "host"
+        ? ""
+        : `<div class="row"><button class="ghost" id="wp-jump" style="width:100%">跳转到房主位置</button></div>
+        <label class="wp-toggle"><input type="checkbox" id="wp-follow-progress" ${
+          cfg.autoFollowProgress ? "checked" : ""
+        }><span class="wp-box"></span><span>自动跟随房主进度</span>
+          <span class="wp-hint">漂移 &gt; ${CONFIG.driftThresholdSec} 秒</span></label>
+        <label class="wp-toggle"><input type="checkbox" id="wp-follow-pp" ${
+          cfg.followPlayPause ? "checked" : ""
+        }><span class="wp-box"></span><span>跟随房主播放/暂停</span></label>`;
 
       body.innerHTML = `
         <h4>
@@ -2919,19 +3098,13 @@
         </h4>
         <div class="wp-sub">${room.role === "host" ? "你是房主" : "参与者"} ·
           ${detected ? "已检测到播放器" : "未检测到播放器"}</div>
+        ${connectionBar}
         ${standbyBlock}
         ${waitBar}
         ${requestBar}
         <div id="wp-list">${list || '<div class="wp-empty">暂无参与者</div>'}</div>
         ${mismatchBar}
-        <div class="row"><button class="ghost" id="wp-jump" style="width:100%">跳转到房主位置</button></div>
-        <label class="wp-toggle"><input type="checkbox" id="wp-follow-progress" ${
-          cfg.autoFollowProgress ? "checked" : ""
-        }><span class="wp-box"></span><span>自动跟随房主进度</span>
-          <span class="wp-hint">漂移 &gt; ${CONFIG.driftThresholdSec} 秒</span></label>
-        <label class="wp-toggle"><input type="checkbox" id="wp-follow-pp" ${
-          cfg.followPlayPause ? "checked" : ""
-        }><span class="wp-box"></span><span>跟随房主播放/暂停</span></label>
+        ${followerControls}
         ${
           room.role === "host"
             ? `<label class="wp-toggle"><input type="checkbox" id="wp-auto-accept" ${
@@ -2960,15 +3133,30 @@
       if (forceBtn) forceBtn.addEventListener("click", () => setForceSync(true));
       const unforceBtn = body.querySelector("#wp-unforce");
       if (unforceBtn) unforceBtn.addEventListener("click", () => setForceSync(false));
-      body.querySelector("#wp-copy").addEventListener("click", () => {
-        navigator.clipboard && navigator.clipboard.writeText(room.roomId);
-        setNotice("房间码已复制");
+      const retryBtn = body.querySelector("#wp-retry");
+      if (retryBtn) retryBtn.addEventListener("click", async () => {
+        retryBtn.disabled = true;
+        retryBtn.textContent = "重试中…";
+        await handlers.retrySync();
+        if (body && body.contains(retryBtn)) {
+          retryBtn.disabled = false;
+          retryBtn.textContent = "重试";
+        }
       });
-      body.querySelector("#wp-jump").addEventListener("click", () => handlers.jumpToHost());
-      body.querySelector("#wp-follow-progress").addEventListener("change", (e) =>
+      body.querySelector("#wp-copy").addEventListener("click", () => {
+        const done = () => setNotice("房间码已复制");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(room.roomId).then(done).catch(() => copyFallback(room.roomId));
+        } else copyFallback(room.roomId);
+      });
+      const jumpBtn = body.querySelector("#wp-jump");
+      if (jumpBtn) jumpBtn.addEventListener("click", () => handlers.jumpToHost());
+      const followProgress = body.querySelector("#wp-follow-progress");
+      if (followProgress) followProgress.addEventListener("change", (e) =>
         settings.update({ autoFollowProgress: e.target.checked })
       );
-      body.querySelector("#wp-follow-pp").addEventListener("change", (e) =>
+      const followPlayPause = body.querySelector("#wp-follow-pp");
+      if (followPlayPause) followPlayPause.addEventListener("change", (e) =>
         settings.update({ followPlayPause: e.target.checked })
       );
       const autoAcceptBox = body.querySelector("#wp-auto-accept");
@@ -3023,9 +3211,11 @@
       render,
       unmount,
       setNotice,
+      setConnectionState,
       setFabState,
       onRoomUpdate(roomState) {
         if (!root) return; // nothing mounted -> nothing to update
+        setConnectionState("online");
         setFabState(roomStore.inRoom() ? "in-room" : "idle");
         if (panel.classList.contains("open")) render();
         updatePill(roomState);
@@ -3079,6 +3269,7 @@
     ignoreSeekRequest: (id) => syncEngine.ignoreSeekRequest(id),
     getWaitingFor: () => syncEngine.getWaitingFor(),
     skipWait: () => syncEngine.skipWait(),
+    retrySync: () => syncEngine.fetchNow(),
     activate() {
       syncEngine.activate();
       panelUi.setNotice("已在当前标签同步");
@@ -3113,7 +3304,8 @@
     async create() {
       try {
         console.info("[一起看] 创建房间：1/4 开始");
-        const name = settings.get().displayName || "Friend";
+        const name = settings.get().displayName.trim();
+        if (!name) throw new Error("displayName is required");
         const res = await apiClient.createRoom(name);
         console.info("[一起看] 创建房间：2/4 服务端已返回", res);
         roomStore.save({
@@ -3141,7 +3333,8 @@
     async join(code) {
       try {
         console.info("[一起看] 加入房间：1/4 开始，房间码", code);
-        const name = settings.get().displayName || "Friend";
+        const name = settings.get().displayName.trim();
+        if (!name) throw new Error("displayName is required");
         const res = await apiClient.joinRoom(code, name);
         console.info("[一起看] 加入房间：2/4 服务端已返回", res);
         roomStore.save({ roomId: res.roomId, participantId: res.participantId, role: "participant" });
@@ -3165,7 +3358,7 @@
       // Best effort, fire-and-forget: the server removes our row so that coming back
       // later does not leave an "offline ghost" of ourselves next to the new one.
       // Leaving must never depend on the network succeeding.
-      if (room) apiClient.leaveRoom(room.roomId, room.participantId).catch(() => {});
+      if (room) apiClient.leaveRoom(room.roomId, room.participantId, room.hostToken).catch(() => {});
       // Also releases the cross-tab lock, so another tab can take over cleanly.
       syncEngine.leaveRoom();
       roomStore.clear();
@@ -3184,7 +3377,10 @@
   syncEngine.onUpdate = (roomState) => panelUi.onRoomUpdate(roomState);
   syncEngine.onError = (kind) => {
     panelUi.setNotice(noticeForError(kind), false, "error");
-    if (kind === "sync-unavailable") panelUi.setFabState("error");
+    if (kind === "sync-unavailable") {
+      panelUi.setFabState("error");
+      panelUi.setConnectionState("offline");
+    }
   };
   syncEngine.onMismatch = () => {
     // The panel's own bar already carries this message *and* the button, so it is
@@ -3257,7 +3453,7 @@
     GM_registerMenuCommand("打开一起看", () => panelUi.open());
     GM_registerMenuCommand("离开房间", () => {
       const room = roomStore.get();
-      if (room) apiClient.leaveRoom(room.roomId, room.participantId).catch(() => {});
+      if (room) apiClient.leaveRoom(room.roomId, room.participantId, room.hostToken).catch(() => {});
       syncEngine.leaveRoom();
       roomStore.clear();
       settings.update({ forceSync: false });
