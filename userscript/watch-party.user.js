@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.11.1
+// @version      0.11.2
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
 // @author       IYIAK
 // @match        *://*/*
@@ -13,6 +13,7 @@
 // @grant        GM_addValueChangeListener
 // @grant        GM_xmlhttpRequest
 // @connect      your-worker.example.workers.dev
+// @connect      your-site.example.com
 // @connect      127.0.0.1
 // Where a manager should look for updates: the site that publishes this script
 // (the build replaces this placeholder with the real host, so the repository
@@ -95,6 +96,11 @@
     // still does the expensive part (connect to the edge, reach the Worker).
     warmupRoomId: "WARMUP"
   };
+
+  // The build replaces these placeholders in the published copy. Keeping them
+  // here means a repository checkout never contains the deployment address.
+  const SCRIPT_VERSION = "{{VERSION}}";
+  const SCRIPT_UPDATE_URL = "https://your-site.example.com/watch-party.user.js";
 
   function workerBaseUrl() {
     return CONFIG.useLocalWorker ? CONFIG.workerUrlLocal : CONFIG.workerUrlRemote;
@@ -622,6 +628,96 @@
         measureTransports();
       }
     };
+  })();
+
+  // ===========================================================================
+  // Module: versionChecker
+  // Checks the published userscript header without blocking room startup.
+  // ===========================================================================
+  const versionChecker = (() => {
+    const CACHE_KEY = "watch-party-version-check-v1";
+    const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
+    function versionParts(value) {
+      const match = String(value || "").trim().replace(/^v/i, "").match(/^\d+(?:\.\d+){0,3}/);
+      return match ? match[0].split(".").map((part) => Number(part)) : null;
+    }
+
+    function compareVersions(a, b) {
+      const left = versionParts(a);
+      const right = versionParts(b);
+      if (!left || !right) return 0;
+      for (let i = 0; i < Math.max(left.length, right.length); i += 1) {
+        const delta = (left[i] || 0) - (right[i] || 0);
+        if (delta) return delta > 0 ? 1 : -1;
+      }
+      return 0;
+    }
+
+    function readPublishedText(url) {
+      const requestUrl = `${url}${url.includes("?") ? "&" : "?"}check=${encodeURIComponent(SCRIPT_VERSION)}`;
+      if (typeof GM_xmlhttpRequest === "function") {
+        return new Promise((resolve, reject) => {
+          GM_xmlhttpRequest({
+            method: "GET",
+            url: requestUrl,
+            timeout: CONFIG.requestTimeoutMs,
+            onload: (response) => {
+              if (response.status >= 200 && response.status < 300) resolve(response.responseText || "");
+              else reject(new Error(`HTTP ${response.status}`));
+            },
+            onerror: () => reject(new Error("network")),
+            ontimeout: () => reject(new Error("timeout"))
+          });
+        });
+      }
+
+      const controller = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = controller ? setTimeout(() => controller.abort(), CONFIG.requestTimeoutMs) : null;
+      return fetch(requestUrl, {
+        cache: "no-store",
+        ...(controller ? { signal: controller.signal } : {})
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          return response.text();
+        })
+        .finally(() => {
+          if (timer) clearTimeout(timer);
+        });
+    }
+
+    async function check() {
+      const current = versionParts(SCRIPT_VERSION) ? SCRIPT_VERSION : "";
+      if (!current) return null;
+
+      const cached = storage.get(CACHE_KEY, null);
+      if (
+        cached &&
+        cached.current === current &&
+        Number.isFinite(Number(cached.checkedAt)) &&
+        Date.now() - Number(cached.checkedAt) < CACHE_TTL_MS
+      ) {
+        return cached.latest && compareVersions(cached.latest, current) > 0
+          ? { current, latest: cached.latest, url: SCRIPT_UPDATE_URL }
+          : null;
+      }
+
+      try {
+        const text = await readPublishedText(SCRIPT_UPDATE_URL);
+        const match = text.match(/^\/\/\s*@version\s+(\S+)/m);
+        const latest = match && match[1] ? match[1] : "";
+        storage.set(CACHE_KEY, { current, latest, checkedAt: Date.now() });
+        return latest && compareVersions(latest, current) > 0
+          ? { current, latest, url: SCRIPT_UPDATE_URL }
+          : null;
+      } catch {
+        // Version checking is advisory. A failed check must never affect sync.
+        return null;
+      }
+    }
+
+    return { check };
   })();
 
   // ===========================================================================
@@ -1594,7 +1690,25 @@
       }
 
       const local = localState();
-      if (!local) return;
+      if (!local) {
+        // A page without a video still needs the room's jump affordance. There
+        // is no local playback state to compare, so treat the host's published
+        // URL as the target and let the existing handoff flow open it.
+        if (host.state.url) {
+          const changed =
+            !mismatchHost ||
+            mismatchHost.url !== host.state.url ||
+            mismatchHost.videoKey !== host.state.videoKey;
+          mismatchHost = host.state;
+          mismatchVotes = { same: 0, diff: CONFIG.mismatchSteadyPolls };
+          if (changed) onMismatch(host.state);
+        } else if (mismatchHost) {
+          mismatchHost = null;
+          mismatchVotes = { same: 0, diff: 0 };
+          onMismatch(null);
+        }
+        return;
+      }
 
       // Same-video gate. The *UI* verdict is debounced so a flapping signal
       // cannot make the panel flicker, but whether we follow is decided by the
@@ -2378,6 +2492,7 @@
     let toastShownKey = "";
     let noticeText = "";
     let noticeTone = "info";
+    let updateInfo = null;
     let connectionState = "online";
     let displayNameDraft = "";
 
@@ -2733,6 +2848,15 @@
               }
         );
       }
+      if (input.updateInfo) {
+        candidates.push({
+          key: `update:${input.updateInfo.latest}`,
+          text: `发现新版本 v${input.updateInfo.latest}`,
+          tone: "info",
+          actions: ["update"],
+          standalone: true
+        });
+      }
       if (input.noticeText) {
         candidates.push({
           key: `note:${input.noticeText}`,
@@ -2747,7 +2871,7 @@
         // so the bubble would just be a duplicate — and one that steals the click.
         // Skipping a candidate rather than the whole bubble matters: a plain
         // notice has no counterpart in the panel, so it still has to get through.
-        if (input.panelOpen && view.actions.length) continue;
+        if (input.panelOpen && view.actions.length && !view.standalone) continue;
         return view;
       }
       return null;
@@ -2759,7 +2883,8 @@
       skip: { label: "不等了，继续播放", primary: false, run: () => handlers.skipWait() },
       jump: { label: "跳转到一起看的视频", primary: true, run: () => handlers.jumpToHostVideo() },
       force: { label: "强制同步", primary: false, run: () => setForceSync(true) },
-      unforce: { label: "取消强制同步", primary: false, run: () => setForceSync(false) }
+      unforce: { label: "取消强制同步", primary: false, run: () => setForceSync(false) },
+      update: { label: "更新脚本", primary: true, run: () => handlers.openUpdate() }
     };
 
     // "These two pages are the same video, follow anyway" — a per-member choice
@@ -2817,6 +2942,7 @@
         noticeText: noticeText,
         noticeTone: noticeTone,
         forceSync: Boolean(settings.get().forceSync),
+        updateInfo,
         isHost: Boolean(room && room.role === "host"),
         panelOpen: Boolean(panel && panel.classList.contains("open"))
       });
@@ -2877,6 +3003,15 @@
           renderToast();
         }, 4000);
       }
+      renderToast();
+    }
+
+    function setUpdate(info) {
+      updateInfo = info || null;
+      if (!updateInfo) return;
+      ensureMounted();
+      toastShownKey = "";
+      setFabState(roomStore.inRoom() ? "in-room" : "idle");
       renderToast();
     }
 
@@ -3211,6 +3346,7 @@
       render,
       unmount,
       setNotice,
+      setUpdate,
       setConnectionState,
       setFabState,
       onRoomUpdate(roomState) {
@@ -3270,6 +3406,10 @@
     getWaitingFor: () => syncEngine.getWaitingFor(),
     skipWait: () => syncEngine.skipWait(),
     retrySync: () => syncEngine.fetchNow(),
+    openUpdate(url) {
+      if (!url) return;
+      window.open(url, "_blank", "noopener");
+    },
     activate() {
       syncEngine.activate();
       panelUi.setNotice("已在当前标签同步");
@@ -3425,6 +3565,11 @@
     // Establish the connection now, so the user's first click does not pay for
     // it. This runs before any room exists, so it stays completely silent.
     apiClient.warmup();
+    // Version checking is advisory and cached; it must never delay room startup
+    // or turn a blocked update endpoint into a sync error.
+    versionChecker.check().then((update) => {
+      if (update) panelUi.setUpdate(update);
+    });
 
     // Resume an existing room across reloads / SPA navigations. Whether this tab
     // *syncs* is never decided here: it syncs only if it already was the chosen
