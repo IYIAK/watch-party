@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.2
+// @version      0.12.3
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2257,6 +2257,12 @@
       #wp-panel h4 { margin: 0 0 4px; font-size: 13.5px; font-weight: 650;
         display: flex; align-items: center; gap: 8px; }
       #wp-panel h4 .wp-h-actions { margin-left: auto; display: flex; gap: 6px; }
+      #wp-panel .wp-panel-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 0 2px; }
+      #wp-panel .wp-panel-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; font-weight: 700; }
+      #wp-panel .wp-panel-head .wp-h-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+      #wp-panel button.wp-icon-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0 !important;
+        border-radius: 11px; }
+      #wp-panel button.wp-icon-button svg { display: block; width: 17px; height: 17px; }
       #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 0 0 6px; }
       .wp-connection { display: flex; align-items: center; justify-content: space-between; gap: 8px;
         margin: 7px 0 9px; padding: 7px 9px; border-radius: 9px; font-size: 11.5px;
@@ -2514,6 +2520,7 @@
     let noticeText = "";
     let noticeTone = "info";
     let updateInfo = null;
+    let updatePendingRefresh = false;
     let connectionState = "online";
     let displayNameDraft = "";
     let settingsOpen = false;
@@ -2707,6 +2714,7 @@
       displayNameDraft = "";
       connectionState = "online";
       settingsOpen = false;
+      updatePendingRefresh = false;
     }
 
     function open() {
@@ -2975,14 +2983,28 @@
 
     function renderUpdate() {
       if (!update || !root || !updateInfo) return;
-      update.innerHTML = `<strong>发现新版本 v${escapeHtml(updateInfo.latest)}</strong>
+      update.innerHTML = updatePendingRefresh
+        ? `<strong>更新页面已打开</strong>
+        <p>请在新页面确认安装，完成后刷新当前页面。</p>
+        <div class="wp-update-actions">
+          <button class="primary" id="wp-update-refresh">刷新页面</button>
+          <button class="secondary" id="wp-update-log">查看更新日志</button>
+        </div>`
+        : `<strong>发现新版本 v${escapeHtml(updateInfo.latest)}</strong>
         <p>为避免房间版本不一致，请尽快更新脚本。</p>
         <div class="wp-update-actions">
           <button class="primary" id="wp-update-now">立即更新</button>
           <button class="secondary" id="wp-update-log">查看更新日志</button>
         </div>`;
       update.classList.add("show");
-      update.querySelector("#wp-update-now").addEventListener("click", () => handlers.openUpdate(updateInfo.url));
+      const updateNow = update.querySelector("#wp-update-now");
+      if (updateNow) updateNow.addEventListener("click", () => {
+        handlers.openUpdate(updateInfo.url);
+        updatePendingRefresh = true;
+        renderUpdate();
+      });
+      const updateRefresh = update.querySelector("#wp-update-refresh");
+      if (updateRefresh) updateRefresh.addEventListener("click", () => window.location.reload());
       update.querySelector("#wp-update-log").addEventListener("click", () => handlers.openUpdate(SCRIPT_CHANGELOG_URL));
       placeUpdate();
     }
@@ -3073,6 +3095,7 @@
     function setUpdate(info) {
       updateInfo = info || null;
       if (!updateInfo) return;
+      updatePendingRefresh = false;
       ensureMounted();
       setFabState(roomStore.inRoom() ? "in-room" : "idle");
       renderUpdate();
@@ -3121,7 +3144,12 @@
     function renderIdle() {
       const cfg = settings.get();
       body.innerHTML = `
-        <h4><span>一起看</span><span class="wp-h-actions"><button class="ghost" id="wp-settings">设置</button></span></h4>
+        <div class="wp-panel-head">
+          <div class="wp-panel-title">一起看</div>
+          <div class="wp-h-actions"><button class="ghost wp-icon-button" id="wp-settings" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M4.9 12a7.1 7.1 0 0 1 .1-1.2L3.7 9.9l1.5-2.6 1.6.6a7.2 7.2 0 0 1 2.1-1.2L9.1 5h3l.2 1.7a7.2 7.2 0 0 1 2.1 1.2l1.6-.6 1.5 2.6-1.3.9a7.1 7.1 0 0 1 0 2.4l1.3.9-1.5 2.6-1.6-.6a7.2 7.2 0 0 1-2.1 1.2l-.2 1.7h-3l-.2-1.7a7.2 7.2 0 0 1-2.1-1.2l-1.6.6-1.5-2.6 1.3-.9A7.1 7.1 0 0 1 4.9 12Z"/></svg>
+          </button></div>
+        </div>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
         <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
         <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
@@ -3296,10 +3324,12 @@
         }><span class="wp-box"></span><span>跟随房主播放/暂停</span></label>`;
 
       body.innerHTML = `
-        <h4>
-          <span>房间</span> <span id="wp-code">${escapeHtml(room.roomId)}</span>
-          <span class="wp-h-actions"><button class="ghost" id="wp-copy">复制</button><button class="ghost" id="wp-settings">设置</button></span>
-        </h4>
+        <div class="wp-panel-head">
+          <div class="wp-panel-title"><span>房间</span><span id="wp-code">${escapeHtml(room.roomId)}</span></div>
+          <div class="wp-h-actions"><button class="ghost" id="wp-copy">复制</button><button class="ghost wp-icon-button" id="wp-settings" title="设置" aria-label="设置">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M4.9 12a7.1 7.1 0 0 1 .1-1.2L3.7 9.9l1.5-2.6 1.6.6a7.2 7.2 0 0 1 2.1-1.2L9.1 5h3l.2 1.7a7.2 7.2 0 0 1 2.1 1.2l1.6-.6 1.5 2.6-1.3.9a7.1 7.1 0 0 1 0 2.4l1.3.9-1.5 2.6-1.6-.6a7.2 7.2 0 0 1-2.1 1.2l-.2 1.7h-3l-.2-1.7a7.2 7.2 0 0 1-2.1-1.2l-1.6.6-1.5-2.6 1.3-.9A7.1 7.1 0 0 1 4.9 12Z"/></svg>
+          </button></div>
+        </div>
         <div class="wp-sub">${room.role === "host" ? "你是房主" : "参与者"} ·
           ${detected ? "已检测到播放器" : "未检测到播放器"}</div>
         ${connectionBar}
