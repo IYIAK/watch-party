@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.1
+// @version      0.12.2
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2263,7 +2263,11 @@
         color: #9a3412; background: #fff7ed; border: 1px solid rgba(234,88,12,.18); }
       .wp-connection button { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
       #wp-panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-      #wp-panel .wp-back { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; }
+      #wp-panel button.wp-back { appearance: none; -webkit-appearance: none; width: 28px; height: 28px;
+        display: grid; place-items: center; padding: 0 !important; margin: 0; border: 0 !important;
+        border-radius: 8px !important; background: transparent !important; box-shadow: none !important;
+        color: #5b6472 !important; font-size: 0; line-height: 0 !important; cursor: pointer; }
+      #wp-panel button.wp-back:hover { background: #f1f4f9 !important; color: #1b2130 !important; }
       #wp-panel .wp-back svg { display: block; width: 15px; height: 15px; }
       #wp-panel .wp-settings-row { display: flex; align-items: center; gap: 12px; min-height: 38px;
         padding: 7px 0; border-bottom: 1px solid rgba(15,23,42,.07); font-size: 12px; }
@@ -2286,6 +2290,32 @@
       #wp-panel .wp-menu-row { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: 7px; font-size: 11.5px; }
       #wp-panel .wp-menu-row.on { color: #1f5ae0; background: rgba(43,108,255,.09); }
       #wp-panel .wp-menu-row svg { flex: 0 0 auto; }
+      #wp-panel .wp-menu-diagram .browser { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; max-width: 264px; margin: 0 auto; }
+      #wp-panel .wp-menu-diagram .addressbar { display: flex; align-items: center; gap: 7px; padding: 7px 10px;
+        border-radius: 99px; background: #f1f3f8; border: 1px solid #e2e7f0; }
+      #wp-panel .wp-menu-diagram .ab-lock { flex: 0 0 auto; }
+      #wp-panel .wp-menu-diagram .ab-url { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        font-size: 10.5px; color: #3c4658; white-space: nowrap; }
+      #wp-panel .wp-menu-diagram .ab-exts { flex: 0 0 auto; display: flex; align-items: center; gap: 5px; }
+      #wp-panel .wp-menu-diagram .ab-tm { display: grid; place-items: center; width: 20px; height: 20px;
+        border-radius: 50%; background: #fff; border: 1px solid #dfe4ee; box-shadow: 0 0 0 2px rgba(91,140,255,.55); }
+      #wp-panel .wp-menu-diagram .menu { width: 100%; background: #fff; border-radius: 11px; padding: 5px;
+        box-shadow: 0 12px 25px -12px rgba(0,0,0,.45); }
+      #wp-panel .wp-menu-diagram .menu-head { display: flex; align-items: center; gap: 8px; padding: 5px 9px 7px;
+        border-bottom: 1px solid #f0f3f8; margin-bottom: 4px; }
+      #wp-panel .wp-menu-diagram .menu-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+        font-size: 10.5px; font-weight: 600; color: #1b2130; white-space: nowrap; }
+      #wp-panel .wp-menu-diagram .menu-switch { position: relative; flex: 0 0 auto; width: 20px; height: 11px;
+        border-radius: 99px; background: #2b6cff; }
+      #wp-panel .wp-menu-diagram .menu-switch::after { content: ""; position: absolute; right: 2px; top: 2px;
+        width: 7px; height: 7px; border-radius: 50%; background: #fff; }
+      #wp-panel .wp-menu-diagram .menu-row { display: flex; align-items: center; gap: 7px; padding: 6px 9px;
+        border-radius: 7px; font-size: 10.5px; color: #5b6472; white-space: nowrap; overflow: hidden; }
+      #wp-panel .wp-menu-diagram .menu-row svg { flex: 0 0 auto; color: #98a3b5; }
+      #wp-panel .wp-menu-diagram .menu-row span { overflow: hidden; text-overflow: ellipsis; }
+      #wp-panel .wp-menu-diagram .menu-row.on { background: #e9f0ff; color: #1c3fae; font-weight: 600;
+        box-shadow: 0 0 0 2px rgba(91,140,255,.55); }
+      #wp-panel .wp-menu-diagram .menu-row.on svg { color: #1c3fae; }
 
       /* ---- inputs ---- */
       #wp-panel input[type="text"], #wp-panel input:not([type]) {
@@ -3357,6 +3387,29 @@
           }><span class="wp-box"></span><span class="sr-only">始终展示悬浮球</span></label>
         </div>
         <div class="wp-field-hint wp-settings-hint">关闭后不会自动出现悬浮球，可在油猴菜单点击「开始一起看」手动打开。</div>
+        <details class="wp-menu-help">
+          <summary>查看油猴菜单示意图</summary>
+          <div class="wp-menu-diagram">
+            <div class="browser">
+              <div class="addressbar">
+                <svg class="ab-lock" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="#8a93a6" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                <span class="ab-url">www.bilibili.com</span>
+                <span class="ab-exts"><span class="ab-tm"><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="1" y="1" width="22" height="22" rx="6" fill="#222"/><circle cx="7.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="16.5" cy="17.2" r="5.2" fill="#fff"/><circle cx="7.5" cy="17.2" r="3.3" fill="#222"/><circle cx="16.5" cy="17.2" r="3.3" fill="#222"/></svg></span></span>
+              </div>
+              <div class="menu">
+                <div class="menu-head"><span class="menu-name">一起看 · 视频同步</span><span class="menu-switch"></span></div>
+                <div class="menu-row on">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5v13l10-6.5z"/><path d="M19 6v12"/></svg>
+                  <span>开始一起看</span>
+                </div>
+                <div class="menu-row">
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg>
+                  <span>屏蔽当前域名</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </details>
         <div class="wp-settings-row">
           <span class="wp-settings-label">展示模式</span>
           <span class="wp-settings-control wp-settings-select">
@@ -3373,14 +3426,6 @@
         <div class="wp-settings-row"><span class="wp-settings-label">当前版本</span><span class="wp-settings-control wp-version">v${escapeHtml(
           versionChecker.current()
         )}</span></div>
-        <details class="wp-menu-help">
-          <summary>查看油猴菜单示意图</summary>
-          <div class="wp-menu-diagram">
-            <div class="wp-menu-head"><span>一起看 · 视频同步</span><span class="wp-menu-switch"></span></div>
-            <div class="wp-menu-row on"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5v13l10-6.5z"/><path d="M19 6v12"/></svg><span>开始一起看</span></div>
-            <div class="wp-menu-row"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg><span>屏蔽当前域名</span></div>
-          </div>
-        </details>
       `;
       body.querySelector("#wp-settings-back").addEventListener("click", closeSettings);
       body.querySelector("#wp-show-ball").addEventListener("change", (event) => {
