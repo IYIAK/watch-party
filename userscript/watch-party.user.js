@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.3
+// @version      0.12.4
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2262,8 +2262,11 @@
       #wp-panel .wp-panel-head .wp-h-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
       #wp-panel button.wp-icon-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0 !important;
         border-radius: 11px; }
-      #wp-panel button.wp-icon-button svg { display: block; width: 17px; height: 17px; }
-      #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 0 0 6px; }
+      #wp-panel button.wp-icon-button svg { display: block; width: 16px; height: 16px; }
+      #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 2px 0 12px; }
+      #wp-panel .wp-idle-form { display: flex; flex-direction: column; gap: 10px; }
+      #wp-panel .wp-idle-form .row { margin: 0; }
+      #wp-panel .wp-idle-form .wp-input-error { margin: -5px 0 -2px; }
       .wp-connection { display: flex; align-items: center; justify-content: space-between; gap: 8px;
         margin: 7px 0 9px; padding: 7px 9px; border-radius: 9px; font-size: 11.5px;
         color: #9a3412; background: #fff7ed; border: 1px solid rgba(234,88,12,.18); }
@@ -2284,6 +2287,13 @@
       #wp-panel .wp-version { color: #6b7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       #wp-panel .wp-field-hint a { color: #2b6cff; text-decoration: none; margin-left: 3px; }
       #wp-panel .wp-settings-hint { margin: 5px 0 7px; }
+      #wp-panel .wp-blocked-sites { margin: 9px 0 0; padding-top: 2px; }
+      #wp-panel .wp-blocked-sites-title { color: #2f3746; font-size: 12px; margin: 0 0 6px; }
+      #wp-panel .wp-blocked-empty { color: #8a93a6; font-size: 11.5px; padding: 5px 0 7px; }
+      #wp-panel .wp-blocked-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(15,23,42,.07); }
+      #wp-panel .wp-blocked-host { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #4a5568; font-size: 11.5px; }
+      #wp-panel .wp-blocked-row button { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
+      #wp-panel .wp-blocked-clear { margin-top: 7px; padding: 3px 8px; font-size: 11px; }
       #wp-panel .wp-toggle-compact { margin: 0; }
       #wp-panel .wp-menu-help { margin: 8px 0 2px; border-bottom: 1px solid rgba(15,23,42,.07); }
       #wp-panel .wp-menu-help summary { padding: 7px 0 9px; color: #2b6cff; cursor: pointer; font-size: 11.5px; }
@@ -3147,18 +3157,20 @@
         <div class="wp-panel-head">
           <div class="wp-panel-title">一起看</div>
           <div class="wp-h-actions"><button class="ghost wp-icon-button" id="wp-settings" title="设置" aria-label="设置">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M4.9 12a7.1 7.1 0 0 1 .1-1.2L3.7 9.9l1.5-2.6 1.6.6a7.2 7.2 0 0 1 2.1-1.2L9.1 5h3l.2 1.7a7.2 7.2 0 0 1 2.1 1.2l1.6-.6 1.5 2.6-1.3.9a7.1 7.1 0 0 1 0 2.4l1.3.9-1.5 2.6-1.6-.6a7.2 7.2 0 0 1-2.1 1.2l-.2 1.7h-3l-.2-1.7a7.2 7.2 0 0 1-2.1-1.2l-1.6.6-1.5-2.6 1.3-.9A7.1 7.1 0 0 1 4.9 12Z"/></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65-2-3.46-2.49 1a7.4 7.4 0 0 0-1.69-.98L15 3h-4l-.38 2.93c-.6.25-1.16.58-1.69.98l-2.49-1-2 3.46 2.11 1.65c-.04.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65 2 3.46 2.49-1c.53.4 1.09.73 1.69.98L11 21h4l.38-2.93c.6-.25 1.16-.58 1.69-.98l2.49 1 2-3.46-2.13-1.65ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
           </button></div>
         </div>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
-        <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
-        <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
-        <div class="row">
-          <button class="action" id="wp-create" style="width:100%">创建房间</button>
-        </div>
-        <div class="row">
-          <input id="wp-join-code" placeholder="房间码" maxlength="4" minlength="4" style="text-transform:uppercase">
-          <button class="ghost" id="wp-join">加入</button>
+        <div class="wp-idle-form">
+          <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
+          <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
+          <div class="row">
+            <button class="action" id="wp-create" style="width:100%">创建房间</button>
+          </div>
+          <div class="row">
+            <input id="wp-join-code" placeholder="房间码" maxlength="4" minlength="4" style="text-transform:uppercase">
+            <button class="ghost" id="wp-join">加入</button>
+          </div>
         </div>
       `;
       const nameInput = body.querySelector("#wp-name");
@@ -3312,9 +3324,10 @@
       const connectionBar = connectionState === "offline"
         ? `<div class="wp-connection" role="status"><span>同步连接中断</span><button class="ghost" id="wp-retry">重试</button></div>`
         : "";
+      const canSyncHost = room.role !== "host" && detected && active;
       const followerControls = room.role === "host"
         ? ""
-        : `<div class="row"><button class="ghost" id="wp-jump" style="width:100%">跳转到房主位置</button></div>
+        : `${canSyncHost ? '<div class="row"><button class="ghost" id="wp-jump" style="width:100%">同步房主进度</button></div>' : ""}
         <label class="wp-toggle"><input type="checkbox" id="wp-follow-progress" ${
           cfg.autoFollowProgress ? "checked" : ""
         }><span class="wp-box"></span><span>自动跟随房主进度</span>
@@ -3327,7 +3340,7 @@
         <div class="wp-panel-head">
           <div class="wp-panel-title"><span>房间</span><span id="wp-code">${escapeHtml(room.roomId)}</span></div>
           <div class="wp-h-actions"><button class="ghost" id="wp-copy">复制</button><button class="ghost wp-icon-button" id="wp-settings" title="设置" aria-label="设置">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3.2"/><path d="M4.9 12a7.1 7.1 0 0 1 .1-1.2L3.7 9.9l1.5-2.6 1.6.6a7.2 7.2 0 0 1 2.1-1.2L9.1 5h3l.2 1.7a7.2 7.2 0 0 1 2.1 1.2l1.6-.6 1.5 2.6-1.3.9a7.1 7.1 0 0 1 0 2.4l1.3.9-1.5 2.6-1.6-.6a7.2 7.2 0 0 1-2.1 1.2l-.2 1.7h-3l-.2-1.7a7.2 7.2 0 0 1-2.1-1.2l-1.6.6-1.5-2.6 1.3-.9A7.1 7.1 0 0 1 4.9 12Z"/></svg>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M19.43 12.98c.04-.32.07-.65.07-.98s-.02-.66-.07-.98l2.11-1.65-2-3.46-2.49 1a7.4 7.4 0 0 0-1.69-.98L15 3h-4l-.38 2.93c-.6.25-1.16.58-1.69.98l-2.49-1-2 3.46 2.11 1.65c-.04.32-.08.65-.08.98s.03.66.08.98l-2.11 1.65 2 3.46 2.49-1c.53.4 1.09.73 1.69.98L11 21h4l.38-2.93c.6-.25 1.16-.58 1.69-.98l2.49 1 2-3.46-2.13-1.65ZM13 15.5A3.5 3.5 0 1 1 13 8a3.5 3.5 0 0 1 0 7.5Z"/></svg>
           </button></div>
         </div>
         <div class="wp-sub">${room.role === "host" ? "你是房主" : "参与者"} ·
@@ -3406,6 +3419,16 @@
 
     function renderSettings() {
       const cfg = settings.get();
+      const blockedSites = siteMatch.listAll().blocked;
+      const blockedSitesMarkup = blockedSites.length
+        ? `${blockedSites
+            .map(
+              (host) => `<div class="wp-blocked-row"><span class="wp-blocked-host" title="${escapeHtml(host)}">${escapeHtml(
+                host
+              )}</span><button class="ghost wp-unblock-site" data-host="${escapeHtml(host)}">解除</button></div>`
+            )
+            .join("")}<button class="ghost wp-blocked-clear" id="wp-clear-blocked">全部解除</button>`
+        : '<div class="wp-blocked-empty">暂无已屏蔽域名</div>';
       body.innerHTML = `
         <h4><button class="ghost wp-back" id="wp-settings-back" aria-label="返回">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
@@ -3440,6 +3463,10 @@
             </div>
           </div>
         </details>
+        <div class="wp-blocked-sites">
+          <div class="wp-blocked-sites-title">已屏蔽域名</div>
+          ${blockedSitesMarkup}
+        </div>
         <div class="wp-settings-row">
           <span class="wp-settings-label">展示模式</span>
           <span class="wp-settings-control wp-settings-select">
@@ -3462,6 +3489,19 @@
         settings.update({ showFloatingBall: event.target.checked });
         if (!event.target.checked && !roomStore.inRoom()) close();
       });
+      body.querySelectorAll(".wp-unblock-site").forEach((button) => {
+        button.addEventListener("click", () => {
+          siteMatch.unblock(button.dataset.host || "");
+          render();
+        });
+      });
+      const clearBlocked = body.querySelector("#wp-clear-blocked");
+      if (clearBlocked) {
+        clearBlocked.addEventListener("click", () => {
+          blockedSites.forEach((host) => siteMatch.unblock(host));
+          render();
+        });
+      }
       body.querySelector("#wp-open-site").addEventListener("click", () => handlers.openUpdate(SCRIPT_HOME_URL));
       body.querySelector("#wp-check-update").addEventListener("click", async (event) => {
         setBusy(event.currentTarget, "检查中…");
@@ -3689,7 +3729,7 @@
     },
     jumpToHost() {
       syncEngine.jumpToHost();
-      panelUi.setNotice("已跳转到房主位置");
+      panelUi.setNotice("已同步房主进度");
     }
   });
 

@@ -84,6 +84,18 @@ class Statement {
       return { success: true };
     }
 
+    if (
+      sql.startsWith(
+        "DELETE FROM rooms WHERE id = ? AND NOT EXISTS (SELECT 1 FROM participants WHERE room_id = ?)"
+      )
+    ) {
+      const [id, room_id] = p;
+      const hasParticipants = [...participants.values()].some((row) => row.room_id === room_id);
+      if (hasParticipants) return { success: true, meta: { changes: 0 } };
+      const deleted = rooms.delete(id);
+      return { success: true, meta: { changes: deleted ? 1 : 0 } };
+    }
+
     if (sql.startsWith("UPDATE rooms SET updated_at")) {
       const [updated_at, id] = p;
       const row = rooms.get(id);

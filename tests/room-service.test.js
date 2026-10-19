@@ -132,7 +132,30 @@ test("leaving as the host requires the private host token", async () => {
     participantId: host.participantId,
     hostToken: host.hostToken
   });
-  assert.equal((await service.getState(host.roomId)).participants.length, 0);
+  await assert.rejects(
+    () => service.getState(host.roomId),
+    (error) => error instanceof HttpError && error.status === 404
+  );
+});
+
+test("the room is destroyed after the last participant leaves", async () => {
+  const { service, db } = makeService();
+  const host = await service.createRoom({ displayName: "Alice" });
+  const guest = await service.joinRoom(host.roomId, { displayName: "Bob" });
+
+  await service.leaveRoom(host.roomId, { participantId: guest.participantId });
+  assert.ok(db._rooms.has(host.roomId));
+
+  await service.leaveRoom(host.roomId, {
+    participantId: host.participantId,
+    hostToken: host.hostToken
+  });
+  assert.equal(db._rooms.has(host.roomId), false);
+  assert.equal(
+    [...db._participants.values()].some((row) => row.room_id === host.roomId),
+    false
+  );
+  await service.leaveRoom(host.roomId, { participantId: guest.participantId });
 });
 
 test("a delayed report from an older syncing tab is ignored", async () => {

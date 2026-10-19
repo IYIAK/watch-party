@@ -157,7 +157,11 @@ export function createRoomService(db, options = {}) {
   // getState also drops participants that have been silent for a long time.
   async function leaveRoom(roomId, input = {}) {
     const cleanRoomId = normalizeRoomId(roomId);
-    const room = await requireRoom(cleanRoomId);
+    // A second tab may have removed the last participant just before this
+    // best-effort cleanup request arrives. Leaving an already destroyed room
+    // remains idempotent for the client.
+    const room = await getRoom(cleanRoomId);
+    if (!room) return { ok: true };
     const participantId = normalizeId(input.participantId, "participantId", LIMITS.participantId);
     const participant = await getParticipant(room.id, participantId);
     // Leaving twice is not an error, and neither is leaving a room we are no longer
@@ -179,6 +183,18 @@ export function createRoomService(db, options = {}) {
       .bind(participant.id, room.id)
       .run();
 
+    // Remove the room as soon as its last participant leaves. The NOT EXISTS
+    // guard keeps this atomic at the database level, so a concurrent join is
+    // not mistaken for an empty room.
+    await db
+      .prepare(
+        "DELETE FROM rooms WHERE id = ? AND NOT EXISTS (SELECT 1 FROM participants WHERE room_id = ?)"
+      )
+      .bind(room.id, room.id)
+      .run();
+
+    // Updating a deleted room is harmless in D1 and keeps the timestamp fresh
+    // for rooms that still have participants.
     await touchRoom(room.id, now());
 
     return { ok: true };
