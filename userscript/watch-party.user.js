@@ -3348,6 +3348,7 @@
       body.querySelector("#wp-settings-back").addEventListener("click", closeSettings);
       body.querySelector("#wp-show-ball").addEventListener("change", (event) => {
         settings.update({ showFloatingBall: event.target.checked });
+        if (!event.target.checked && !roomStore.inRoom()) close();
       });
       body.querySelector("#wp-open-site").addEventListener("click", () => handlers.openUpdate(SCRIPT_HOME_URL));
       body.querySelector("#wp-check-update").addEventListener("click", async (event) => {
