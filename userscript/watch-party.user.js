@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.6
+// @version      0.12.7
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -3732,7 +3732,13 @@
       // floating ball. The previous branch only kept it for update notices, so
       // leaving a room unexpectedly removed the ball even though the setting was
       // still on.
-      if (settings.get().showFloatingBall) panelUi.showFloatingBall();
+      if (settings.get().showFloatingBall) {
+        panelUi.showFloatingBall();
+        // showFloatingBall keeps the FAB visible but intentionally does not
+        // rebuild an already open panel. After leaving, rebuild it now so the
+        // stale room view cannot remain on screen until the next interaction.
+        panelUi.render();
+      }
       else if (panelUi.hasUpdate()) panelUi.showUpdateOnly();
       else panelUi.unmount();
     },
