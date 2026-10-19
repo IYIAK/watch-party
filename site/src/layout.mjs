@@ -718,6 +718,9 @@ ${THEME_BOOT}<title>${escapeHtml(title)}</title>
    the wider shell, so the measure still lands near 45 CJK characters. */
 .page-guide main.wrap { max-width:1140px; }
 .page-guide .page { display:grid; grid-template-columns:200px minmax(0,1fr); gap:40px; align-items:start; }
+.page-guide.page-changelog main.wrap { max-width:900px; }
+.page-guide.page-changelog .page { display:block; max-width:860px; margin:0 auto 34px; }
+.page-guide.page-changelog article.doc { max-width:860px; }
 .doc-nav { position:sticky; top:78px; display:flex; flex-direction:column; gap:2px; padding:4px 0 0; }
 .doc-nav .toc-h { margin:0 0 10px; font-size:11.5px; font-weight:700; letter-spacing:.14em;
   text-transform:uppercase; color:var(--faint); }

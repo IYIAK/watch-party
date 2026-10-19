@@ -2263,12 +2263,29 @@
         color: #9a3412; background: #fff7ed; border: 1px solid rgba(234,88,12,.18); }
       .wp-connection button { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
       #wp-panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-      #wp-panel .wp-back { width: 25px; height: 25px; padding: 0; font-size: 19px; line-height: 1; }
-      #wp-panel .wp-setting-row { display: flex; align-items: center; justify-content: space-between;
-        gap: 10px; padding: 8px 0; border-top: 1px solid rgba(15,23,42,.07); font-size: 12px; }
-      #wp-panel .wp-setting-row button { padding: 4px 9px; font-size: 11.5px; }
+      #wp-panel .wp-back { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; }
+      #wp-panel .wp-back svg { display: block; width: 15px; height: 15px; }
+      #wp-panel .wp-settings-row { display: flex; align-items: center; gap: 12px; min-height: 38px;
+        padding: 7px 0; border-bottom: 1px solid rgba(15,23,42,.07); font-size: 12px; }
+      #wp-panel .wp-settings-label { flex: 1 1 auto; min-width: 0; color: #2f3746; }
+      #wp-panel .wp-settings-control { flex: 0 0 auto; display: flex; align-items: center; justify-content: flex-end; }
+      #wp-panel .wp-settings-control button { padding: 4px 9px; font-size: 11.5px; }
+      #wp-panel .wp-settings-select { width: 132px; }
       #wp-panel .wp-version { color: #6b7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
       #wp-panel .wp-field-hint a { color: #2b6cff; text-decoration: none; margin-left: 3px; }
+      #wp-panel .wp-settings-hint { margin: 5px 0 7px; }
+      #wp-panel .wp-toggle-compact { margin: 0; }
+      #wp-panel .wp-menu-help { margin: 8px 0 2px; border-bottom: 1px solid rgba(15,23,42,.07); }
+      #wp-panel .wp-menu-help summary { padding: 7px 0 9px; color: #2b6cff; cursor: pointer; font-size: 11.5px; }
+      #wp-panel .wp-menu-help summary::marker { color: #6b7280; }
+      #wp-panel .wp-menu-diagram { margin: 0 0 9px; padding: 8px; border-radius: 10px; background: #f5f7fb;
+        border: 1px solid #e3e8f0; color: #3f4859; }
+      #wp-panel .wp-menu-head { display: flex; align-items: center; justify-content: space-between;
+        padding: 2px 3px 7px; font-size: 10.5px; color: #6b7280; }
+      #wp-panel .wp-menu-switch { width: 18px; height: 10px; border-radius: 99px; background: #cbd5e1; }
+      #wp-panel .wp-menu-row { display: flex; align-items: center; gap: 8px; padding: 6px 7px; border-radius: 7px; font-size: 11.5px; }
+      #wp-panel .wp-menu-row.on { color: #1f5ae0; background: rgba(43,108,255,.09); }
+      #wp-panel .wp-menu-row svg { flex: 0 0 auto; }
 
       /* ---- inputs ---- */
       #wp-panel input[type="text"], #wp-panel input:not([type]) {
@@ -2378,6 +2395,8 @@
       .wp-toggle input:focus-visible + .wp-box { outline: 2px solid rgba(43,108,255,.55);
         outline-offset: 2px; }
       .wp-toggle .wp-hint { color: #6b7280; font-size: 11px; margin-left: auto; }
+      .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden;
+        clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
       /* ---- field label ---- */
       .wp-field-label { margin: 11px 0 3px; font-size: 11.5px; color: #4b5563;
@@ -3035,6 +3054,11 @@
       fab.classList.toggle("error", kind === "error");
     }
 
+    function setFabVisible(visible) {
+      if (!fab) return;
+      fab.style.display = visible ? "" : "none";
+    }
+
     function setConnectionState(state) {
       connectionState = state === "offline" ? "offline" : "online";
       if (root && panel && panel.classList.contains("open")) render();
@@ -3323,27 +3347,40 @@
     function renderSettings() {
       const cfg = settings.get();
       body.innerHTML = `
-        <h4><button class="ghost wp-back" id="wp-settings-back" aria-label="返回">‹</button><span>设置</span></h4>
-        <label class="wp-toggle"><input type="checkbox" id="wp-show-ball" ${
-          cfg.showFloatingBall ? "checked" : ""
-        }><span class="wp-box"></span><span>始终展示悬浮球</span></label>
-        <div class="wp-field-hint">关闭后不会自动出现悬浮球，可在油猴菜单点击「开始一起看」手动打开。<a href="${escapeHtml(
-          SCRIPT_GUIDE_URL
-        )}#settings" target="_blank" rel="noopener">查看图示</a></div>
-        <div class="wp-field-label">展示模式</div>
-        <div class="row">
-          <div class="wp-select">
-            <button type="button" class="wp-select-trigger" aria-haspopup="listbox"
-                    aria-expanded="false" aria-label="展示模式">
-              <span class="wp-select-value">${MODE_NAMES[cfg.displayMode] || MODE_NAMES.quiet}</span><span class="wp-chev">▾</span>
-            </button>
-          </div>
+        <h4><button class="ghost wp-back" id="wp-settings-back" aria-label="返回">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+        </button><span>设置</span></h4>
+        <div class="wp-settings-row">
+          <span class="wp-settings-label">始终展示悬浮球</span>
+          <label class="wp-toggle wp-toggle-compact wp-settings-control"><input type="checkbox" id="wp-show-ball" ${
+            cfg.showFloatingBall ? "checked" : ""
+          }><span class="wp-box"></span><span class="sr-only">始终展示悬浮球</span></label>
         </div>
-        <div class="wp-setting-row"><span>检查更新</span><button class="ghost" id="wp-check-update">检查</button></div>
-        <div class="wp-setting-row"><span>官网</span><button class="ghost" id="wp-open-site">打开</button></div>
-        <div class="wp-setting-row"><span>当前版本</span><span class="wp-version">v${escapeHtml(
+        <div class="wp-field-hint wp-settings-hint">关闭后不会自动出现悬浮球，可在油猴菜单点击「开始一起看」手动打开。</div>
+        <div class="wp-settings-row">
+          <span class="wp-settings-label">展示模式</span>
+          <span class="wp-settings-control wp-settings-select">
+            <span class="wp-select">
+              <button type="button" class="wp-select-trigger" aria-haspopup="listbox"
+                      aria-expanded="false" aria-label="展示模式">
+                <span class="wp-select-value">${MODE_NAMES[cfg.displayMode] || MODE_NAMES.quiet}</span><span class="wp-chev">▾</span>
+              </button>
+            </span>
+          </span>
+        </div>
+        <div class="wp-settings-row"><span class="wp-settings-label">检查更新</span><span class="wp-settings-control"><button class="ghost" id="wp-check-update">检查</button></span></div>
+        <div class="wp-settings-row"><span class="wp-settings-label">官网</span><span class="wp-settings-control"><button class="ghost" id="wp-open-site">打开</button></span></div>
+        <div class="wp-settings-row"><span class="wp-settings-label">当前版本</span><span class="wp-settings-control wp-version">v${escapeHtml(
           versionChecker.current()
         )}</span></div>
+        <details class="wp-menu-help">
+          <summary>查看油猴菜单示意图</summary>
+          <div class="wp-menu-diagram">
+            <div class="wp-menu-head"><span>一起看 · 视频同步</span><span class="wp-menu-switch"></span></div>
+            <div class="wp-menu-row on"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5.5v13l10-6.5z"/><path d="M19 6v12"/></svg><span>开始一起看</span></div>
+            <div class="wp-menu-row"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M6 6l12 12"/></svg><span>屏蔽当前域名</span></div>
+          </div>
+        </details>
       `;
       body.querySelector("#wp-settings-back").addEventListener("click", closeSettings);
       body.querySelector("#wp-show-ball").addEventListener("change", (event) => {
@@ -3393,8 +3430,16 @@
       showFloatingBall() {
         ensureMounted();
         settingsOpen = false;
+        setFabVisible(true);
         setFabState(roomStore.inRoom() ? "in-room" : "idle");
         updatePill(handlers.getRoomState());
+        renderUpdate();
+      },
+      showUpdateOnly() {
+        ensureMounted();
+        settingsOpen = false;
+        setFabVisible(false);
+        updatePill(null);
         renderUpdate();
       },
       // Open the create/join panel on demand (e.g. from the userscript menu).
@@ -3559,8 +3604,12 @@
       // Forcing sync is a decision about *this* room's videos, so it does not
       // follow you into the next one.
       settings.update({ forceSync: false });
-      // Leaving returns the page to a fully clean state (no FAB, no panel).
-      if (panelUi.hasUpdate()) panelUi.showFloatingBall();
+      // Keep the entry point visible when the user has enabled the persistent
+      // floating ball. The previous branch only kept it for update notices, so
+      // leaving a room unexpectedly removed the ball even though the setting was
+      // still on.
+      if (settings.get().showFloatingBall) panelUi.showFloatingBall();
+      else if (panelUi.hasUpdate()) panelUi.showUpdateOnly();
       else panelUi.unmount();
     },
     jumpToHost() {
