@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.4
+// @version      0.12.5
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2260,9 +2260,9 @@
       #wp-panel .wp-panel-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 0 2px; }
       #wp-panel .wp-panel-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; font-weight: 700; }
       #wp-panel .wp-panel-head .wp-h-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
-      #wp-panel button.wp-icon-button { width: 36px; height: 36px; display: grid; place-items: center; padding: 0 !important;
-        border-radius: 11px; }
-      #wp-panel button.wp-icon-button svg { display: block; width: 16px; height: 16px; }
+      #wp-panel button.wp-icon-button { width: 32px; height: 32px; display: grid; place-items: center; padding: 0 !important;
+        border-radius: 10px; }
+      #wp-panel button.wp-icon-button svg { display: block; width: 14px; height: 14px; }
       #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 2px 0 12px; }
       #wp-panel .wp-idle-form { display: flex; flex-direction: column; gap: 10px; }
       #wp-panel .wp-idle-form .row { margin: 0; }
@@ -2336,9 +2336,16 @@
       /* ---- inputs ---- */
       #wp-panel input[type="text"], #wp-panel input:not([type]) {
         background: #f5f7fb; border: 1px solid #e3e8f0;
-        color: #1b2130; border-radius: 10px; padding: 8px 10px; width: 100%;
+        color: #1b2130 !important; -webkit-text-fill-color: #1b2130 !important;
+        caret-color: #1b2130; border-radius: 10px; padding: 8px 10px; width: 100%;
         flex: 1 1 auto; min-width: 0;
         font-size: 12.5px; font-family: inherit; transition: border-color .15s, box-shadow .15s; }
+      #wp-panel input:-webkit-autofill,
+      #wp-panel input:-webkit-autofill:hover,
+      #wp-panel input:-webkit-autofill:focus {
+        -webkit-text-fill-color: #1b2130 !important;
+        -webkit-box-shadow: 0 0 0 1000px #f5f7fb inset !important;
+        caret-color: #1b2130; }
       #wp-panel input::placeholder { color: #9aa4b5; }
       #wp-panel input[type="text"]:focus, #wp-panel input:not([type]):focus {
         outline: none; border-color: #2b6cff; background: #fff;
@@ -3162,7 +3169,7 @@
         </div>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
         <div class="wp-idle-form">
-          <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
+          <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="off" aria-describedby="wp-name-error"></div>
           <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
           <div class="row">
             <button class="action" id="wp-create" style="width:100%">创建房间</button>
