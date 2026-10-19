@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.5
+// @version      0.12.6
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2260,6 +2260,8 @@
       #wp-panel .wp-panel-head { display: flex; align-items: center; gap: 8px; min-height: 36px; margin: 0 0 2px; }
       #wp-panel .wp-panel-title { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 15px; font-weight: 700; }
       #wp-panel .wp-panel-head .wp-h-actions { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+      #wp-panel .wp-panel-head .wp-h-actions > button { height: 32px !important; min-height: 32px !important;
+        box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; }
       #wp-panel button.wp-icon-button { width: 32px; height: 32px; display: grid; place-items: center; padding: 0 !important;
         border-radius: 10px; }
       #wp-panel button.wp-icon-button svg { display: block; width: 14px; height: 14px; }
