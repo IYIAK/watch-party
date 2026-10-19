@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.11.2
-// @description  安静地和朋友同步播放进度，并可选择跟随房主。内置 bilibili 及稀饭动漫、次元城、agefans 等站点，其他站点可在 Tampermonkey 菜单里一键匹配当前域名。
+// @version      0.12.0
+// @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
 // @grant        GM_setValue
@@ -101,6 +101,9 @@
   // here means a repository checkout never contains the deployment address.
   const SCRIPT_VERSION = "{{VERSION}}";
   const SCRIPT_UPDATE_URL = "https://your-site.example.com/watch-party.user.js";
+  const SCRIPT_HOME_URL = "{{HOME_URL}}";
+  const SCRIPT_GUIDE_URL = "{{GUIDE_URL}}";
+  const SCRIPT_CHANGELOG_URL = "{{CHANGELOG_URL}}";
 
   function workerBaseUrl() {
     return CONFIG.useLocalWorker ? CONFIG.workerUrlLocal : CONFIG.workerUrlRemote;
@@ -158,7 +161,9 @@
       displayName: "",
       seekRequestAutoAccept: false, // host: accept member drags without asking
       forceSync: false, // member: follow the host even on a different video page
-      matchedSites: [] // extra domains matched from the Tampermonkey menu
+      showFloatingBall: true,
+      floatingHintShown: false,
+      blockedSites: []
     };
     let current = { ...defaults, ...storage.get(CONFIG.settingsKey, {}) };
 
@@ -173,31 +178,13 @@
   })();
 
   // ===========================================================================
-  // Module: siteMatch (which domains this script is allowed to act on)
+  // Module: siteMatch (which domains are blocked from automatic activation)
   // ---------------------------------------------------------------------------
-  // The script installs with `@match *://*/*` so a domain can be added at
-  // runtime, but a domain only becomes active once the user matches it from the
-  // Tampermonkey menu. An unmatched domain stays completely inert: no DOM, no
-  // requests, no timers.
+  // The script installs with `@match *://*/*`. It stays quiet until a video is
+  // detected or the user explicitly chooses 「开始一起看」. Users can block
+  // domains where they never want automatic activation.
   // ===========================================================================
   const siteMatch = (() => {
-    // Sites that worked before runtime matching existed. Always on, never
-    // removable from the menu.
-    const BUILTIN_SITES = [
-      "bilibili.com",
-      "xifanapp.com",
-      "ciyuanapp.com",
-      "agedm.org",
-      "localhost",
-      "127.0.0.1"
-    ];
-    // agefans rotates its TLD, so it stays a pattern. Deliberately tight: the
-    // old @match `*.agefans.*` would also have accepted agefans.cc.evil.com.
-    const BUILTIN_PATTERNS = [/(^|\.)agefans\.[a-z]{2,}(\.[a-z]{2,})?$/];
-    // Enough of a public-suffix idea to turn a.b.example.co.uk into
-    // example.co.uk (instead of the useless co.uk).
-    const SECOND_LEVELS = new Set(["co", "com", "net", "org", "gov", "edu", "ac", "or", "ne", "go"]);
-
     function normalizeHost(host) {
       return String(host || "")
         .trim()
@@ -206,8 +193,7 @@
         .replace(/\.+$/, "");
     }
 
-    // An entry covers itself and every subdomain of it, and nothing else:
-    // "agedm.org" matches "www.agedm.org", never "agedm.org.evil.com".
+    // A blocked entry covers itself and every subdomain of it.
     function entryMatches(host, entry) {
       const h = normalizeHost(host);
       const e = normalizeHost(entry);
@@ -215,61 +201,31 @@
       return h === e || h.endsWith("." + e);
     }
 
-    function userSites() {
-      const list = settings.get().matchedSites;
+    function blockedSites() {
+      const list = settings.get().blockedSites;
       return Array.isArray(list) ? list.map(normalizeHost).filter(Boolean) : [];
-    }
-
-    function isBuiltin(entry) {
-      const e = normalizeHost(entry);
-      return BUILTIN_SITES.includes(e) || BUILTIN_PATTERNS.some((re) => re.test(e));
-    }
-
-    // Which entry makes this host active — the most specific one wins.
-    function matchEntry(host) {
-      const h = normalizeHost(host);
-      if (!h) return "";
-      const candidates = [...BUILTIN_SITES, ...userSites()].filter((e) => entryMatches(h, e));
-      if (BUILTIN_PATTERNS.some((re) => re.test(h))) candidates.push(h);
-      if (!candidates.length) return "";
-      return candidates.sort((a, b) => b.length - a.length)[0];
     }
 
     function currentHost() {
       return normalizeHost(location.hostname);
     }
-    function isMatched(host) {
-      return Boolean(matchEntry(host || currentHost()));
+    function isBlocked(host) {
+      const h = normalizeHost(host || currentHost());
+      return blockedSites().some((entry) => entryMatches(h, entry));
     }
-    function add(entry) {
+    function block(entry) {
       const e = normalizeHost(entry);
-      if (!e || isMatched(e)) return false;
-      settings.update({ matchedSites: [...userSites(), e] });
+      if (!e || isBlocked(e)) return false;
+      settings.update({ blockedSites: [...blockedSites(), e] });
       return true;
     }
-    function remove(entry) {
+    function unblock(entry) {
       const e = normalizeHost(entry);
-      const list = userSites();
+      const list = blockedSites();
       const next = list.filter((h) => h !== e);
       if (next.length === list.length) return false;
-      settings.update({ matchedSites: next });
+      settings.update({ blockedSites: next });
       return true;
-    }
-    // The domain one level up (www.agedm.org -> agedm.org), offered as its own
-    // menu entry so matching subdomains is an explicit choice, never a guess.
-    function parentOf(host) {
-      const h = normalizeHost(host);
-      const labels = h.split(".");
-      if (labels.length < 3) return "";
-      // IP literals have no useful parent.
-      if (labels.every((l) => /^\d+$/.test(l))) return "";
-      const take = labels.length >= 4 && SECOND_LEVELS.has(labels[labels.length - 2]) ? 3 : 2;
-      const candidate = labels.slice(-take).join(".");
-      return candidate === h ? "" : candidate;
-    }
-    function parentCandidate() {
-      const candidate = parentOf(currentHost());
-      return candidate && !isMatched(candidate) ? candidate : "";
     }
     function referrerHost() {
       try {
@@ -279,29 +235,24 @@
       }
     }
     function listAll() {
-      return { builtin: [...BUILTIN_SITES, "*.agefans.*"], user: userSites() };
+      return { blocked: blockedSites() };
     }
 
     return {
       normalizeHost,
       entryMatches,
-      matchEntry,
-      isBuiltin,
-      userSites,
       listAll,
       currentHost,
-      isMatched,
-      add,
-      remove,
-      parentOf,
-      parentCandidate,
+      isBlocked,
+      block,
+      unblock,
       // A frame only forwards video state when it belongs to a matched site —
       // its own host, or the page that embedded it. Unrelated pages therefore
       // stay quiet inside their iframes too.
       frameShouldReport() {
-        if (isMatched(currentHost())) return true;
+        if (!isBlocked(currentHost())) return true;
         const ref = referrerHost();
-        return Boolean(ref && isMatched(ref));
+        return Boolean(ref && !isBlocked(ref));
       }
     };
   })();
@@ -636,7 +587,10 @@
   // ===========================================================================
   const versionChecker = (() => {
     const CACHE_KEY = "watch-party-version-check-v1";
-    const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+    function today() {
+      const now = new Date();
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    }
 
     function versionParts(value) {
       const match = String(value || "").trim().replace(/^v/i, "").match(/^\d+(?:\.\d+){0,3}/);
@@ -687,16 +641,16 @@
         });
     }
 
-    async function check() {
+    async function check(force = false) {
       const current = versionParts(SCRIPT_VERSION) ? SCRIPT_VERSION : "";
       if (!current) return null;
 
       const cached = storage.get(CACHE_KEY, null);
       if (
+        !force &&
         cached &&
         cached.current === current &&
-        Number.isFinite(Number(cached.checkedAt)) &&
-        Date.now() - Number(cached.checkedAt) < CACHE_TTL_MS
+        cached.date === today()
       ) {
         return cached.latest && compareVersions(cached.latest, current) > 0
           ? { current, latest: cached.latest, url: SCRIPT_UPDATE_URL }
@@ -707,7 +661,7 @@
         const text = await readPublishedText(SCRIPT_UPDATE_URL);
         const match = text.match(/^\/\/\s*@version\s+(\S+)/m);
         const latest = match && match[1] ? match[1] : "";
-        storage.set(CACHE_KEY, { current, latest, checkedAt: Date.now() });
+        storage.set(CACHE_KEY, { current, latest, date: today() });
         return latest && compareVersions(latest, current) > 0
           ? { current, latest, url: SCRIPT_UPDATE_URL }
           : null;
@@ -717,7 +671,7 @@
       }
     }
 
-    return { check };
+    return { check, current: () => SCRIPT_VERSION };
   })();
 
   // ===========================================================================
@@ -2260,6 +2214,17 @@
       .wp-toast-actions button.primary { background: linear-gradient(150deg, #6d8bff, #2b6cff);
         color: #fff; border-color: rgba(43,108,255,.30); font-weight: 600; }
       .wp-toast-actions button.primary:hover { filter: brightness(1.07); }
+      #wp-update { position: absolute; right: 0; bottom: 54px; width: 304px; display: none;
+        flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px;
+        color: #1b2130; background: #fffdf7; border-color: rgba(217,119,6,.32); }
+      #wp-update.show { display: flex; }
+      #wp-update strong { font-size: 12.5px; }
+      #wp-update p { margin: 0; font-size: 11.5px; color: #6b7280; }
+      .wp-update-actions { display: flex; gap: 7px; }
+      .wp-update-actions button { flex: 1 1 0; font-family: inherit; font-size: 11.5px;
+        border-radius: 8px; padding: 6px 8px; cursor: pointer; }
+      .wp-update-actions .primary { color: #fff; background: #d97706; border: 1px solid #b45309; }
+      .wp-update-actions .secondary { color: #92400e; background: #fff7ed; border: 1px solid #fed7aa; }
 
       /* ---- floating action button ---- */
       #wp-fab { width: 44px; height: 44px; border-radius: 50%; color: #fff;
@@ -2298,6 +2263,12 @@
         color: #9a3412; background: #fff7ed; border: 1px solid rgba(234,88,12,.18); }
       .wp-connection button { flex: 0 0 auto; padding: 3px 8px; font-size: 11px; }
       #wp-panel .row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+      #wp-panel .wp-back { width: 25px; height: 25px; padding: 0; font-size: 19px; line-height: 1; }
+      #wp-panel .wp-setting-row { display: flex; align-items: center; justify-content: space-between;
+        gap: 10px; padding: 8px 0; border-top: 1px solid rgba(15,23,42,.07); font-size: 12px; }
+      #wp-panel .wp-setting-row button { padding: 4px 9px; font-size: 11.5px; }
+      #wp-panel .wp-version { color: #6b7280; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      #wp-panel .wp-field-hint a { color: #2b6cff; text-decoration: none; margin-left: 3px; }
 
       /* ---- inputs ---- */
       #wp-panel input[type="text"], #wp-panel input:not([type]) {
@@ -2459,7 +2430,7 @@
 
       /* Last in the sheet on purpose: these must beat the "#wp-pill.show" rule.
          Fullscreen keeps only the bubble — no panel, no pill, no button. */
-      .wp-fs #wp-panel, .wp-fs #wp-pill, .wp-fs #wp-fab { display: none; }
+      .wp-fs #wp-panel, .wp-fs #wp-pill, .wp-fs #wp-fab, .wp-fs #wp-update { display: none; }
       .wp-fs #wp-toast { position: fixed; top: 16px; right: 16px; bottom: auto; }
     `;
     // Styles are injected lazily, so a domain that has not been matched yet
@@ -2488,6 +2459,7 @@
     let toast = null;
     let toastText = null;
     let toastActions = null;
+    let update = null;
     let toastTimer = null;
     let toastShownKey = "";
     let noticeText = "";
@@ -2495,6 +2467,7 @@
     let updateInfo = null;
     let connectionState = "online";
     let displayNameDraft = "";
+    let settingsOpen = false;
 
     let collapseTimer = null;
     let noticeTimer = null;
@@ -2534,15 +2507,16 @@
           <span id="wp-toast-text"></span>
           <div class="wp-toast-actions" id="wp-toast-actions"></div>
         </div>
+        <div id="wp-update" class="wp-glass" role="dialog" aria-label="脚本更新" aria-live="polite"></div>
         <div id="wp-modelist" class="wp-listbox" role="listbox" aria-label="面板显示方式">
           <div class="wp-opt" role="option" data-value="quiet" aria-selected="true">
-            安静模式<span class="wp-tick">✓</span>
+            安静<span class="wp-tick">✓</span>
           </div>
           <div class="wp-opt" role="option" data-value="pill" aria-selected="false">
-            状态条<span class="wp-tick">✓</span>
+            仅气泡<span class="wp-tick">✓</span>
           </div>
           <div class="wp-opt" role="option" data-value="pinned" aria-selected="false">
-            固定不收起<span class="wp-tick">✓</span>
+            始终展示<span class="wp-tick">✓</span>
           </div>
         </div>
       `;
@@ -2556,6 +2530,7 @@
       toast = root.querySelector("#wp-toast");
       toastText = root.querySelector("#wp-toast-text");
       toastActions = root.querySelector("#wp-toast-actions");
+      update = root.querySelector("#wp-update");
 
       // The menu options are static, so they are wired once per mount instead
       // of on every render.
@@ -2607,7 +2582,7 @@
       applyFullscreen();
     }
 
-    const MODE_NAMES = { quiet: "安静模式", pill: "状态条", pinned: "固定不收起" };
+    const MODE_NAMES = { quiet: "安静", pill: "仅气泡", pinned: "始终展示" };
 
     function modeTrigger() {
       return body && body.querySelector(".wp-select-trigger");
@@ -2667,7 +2642,7 @@
       if (modeList && modeList.classList.contains("open")) closeModeMenu();
       else openModeMenu();
     }
-    window.addEventListener("resize", placeModeMenu);
+    window.addEventListener("resize", () => { placeModeMenu(); placeUpdate(); });
 
     function unmount() {
       if (collapseTimer) clearTimeout(collapseTimer);
@@ -2679,18 +2654,21 @@
       closeModeMenu();
       if (root) root.remove();
       root = fab = panel = body = pill = modeList = null;
-      toast = toastText = toastActions = null;
+      toast = toastText = toastActions = update = null;
       displayNameDraft = "";
       connectionState = "online";
+      settingsOpen = false;
     }
 
     function open() {
       ensureMounted();
+      settingsOpen = false;
       panel.classList.add("open");
       if (pill) pill.classList.remove("show");
       render();
       placeToast();
       renderToast();
+      renderUpdate();
       scheduleCollapse();
       probeClickable();
     }
@@ -2746,12 +2724,29 @@
       placeToast();
       renderToast();
       // When closed with no room, return the page to a fully clean state.
-      if (!roomStore.inRoom()) unmount();
+      if (!roomStore.inRoom() && !updateInfo) unmount();
       else updatePill(handlers.getRoomState());
+      placeUpdate();
     }
     function toggle() {
       if (panel && panel.classList.contains("open")) close();
       else open();
+    }
+
+    function openSettings() {
+      ensureMounted();
+      settingsOpen = true;
+      panel.classList.add("open");
+      if (pill) pill.classList.remove("show");
+      render();
+      placeToast();
+      renderToast();
+      renderUpdate();
+    }
+
+    function closeSettings() {
+      settingsOpen = false;
+      render();
     }
     function scheduleCollapse() {
       if (collapseTimer) clearTimeout(collapseTimer);
@@ -2788,6 +2783,7 @@
       }
       placeToast();
       renderToast();
+      renderUpdate();
     }
     document.addEventListener("fullscreenchange", applyFullscreen);
     document.addEventListener("webkitfullscreenchange", applyFullscreen);
@@ -2848,15 +2844,6 @@
               }
         );
       }
-      if (input.updateInfo) {
-        candidates.push({
-          key: `update:${input.updateInfo.latest}`,
-          text: `发现新版本 v${input.updateInfo.latest}`,
-          tone: "info",
-          actions: ["update"],
-          standalone: true
-        });
-      }
       if (input.noticeText) {
         candidates.push({
           key: `note:${input.noticeText}`,
@@ -2871,7 +2858,7 @@
         // so the bubble would just be a duplicate — and one that steals the click.
         // Skipping a candidate rather than the whole bubble matters: a plain
         // notice has no counterpart in the panel, so it still has to get through.
-        if (input.panelOpen && view.actions.length && !view.standalone) continue;
+        if (input.panelOpen && view.actions.length) continue;
         return view;
       }
       return null;
@@ -2883,8 +2870,7 @@
       skip: { label: "不等了，继续播放", primary: false, run: () => handlers.skipWait() },
       jump: { label: "跳转到一起看的视频", primary: true, run: () => handlers.jumpToHostVideo() },
       force: { label: "强制同步", primary: false, run: () => setForceSync(true) },
-      unforce: { label: "取消强制同步", primary: false, run: () => setForceSync(false) },
-      update: { label: "更新脚本", primary: true, run: () => handlers.openUpdate() }
+      unforce: { label: "取消强制同步", primary: false, run: () => setForceSync(false) }
     };
 
     // "These two pages are the same video, follow anyway" — a per-member choice
@@ -2924,6 +2910,34 @@
       toast.style.bottom = `${Math.min(54 + lift, maxBottom)}px`;
     }
 
+    function placeUpdate() {
+      if (!update || !root) return;
+      if (root.classList.contains("wp-fs")) {
+        update.style.bottom = "";
+        return;
+      }
+      let lift = 54;
+      if (panel && panel.classList.contains("open")) lift += Math.round(panel.getBoundingClientRect().height) + 12;
+      if (toast && toast.classList.contains("show")) lift += Math.round(toast.getBoundingClientRect().height) + 8;
+      const h = update.offsetHeight || 90;
+      const maxBottom = Math.max(8, window.innerHeight - h - 8);
+      update.style.bottom = `${Math.min(lift, maxBottom)}px`;
+    }
+
+    function renderUpdate() {
+      if (!update || !root || !updateInfo) return;
+      update.innerHTML = `<strong>发现新版本 v${escapeHtml(updateInfo.latest)}</strong>
+        <p>为避免房间版本不一致，请尽快更新脚本。</p>
+        <div class="wp-update-actions">
+          <button class="primary" id="wp-update-now">立即更新</button>
+          <button class="secondary" id="wp-update-log">查看更新日志</button>
+        </div>`;
+      update.classList.add("show");
+      update.querySelector("#wp-update-now").addEventListener("click", () => handlers.openUpdate(updateInfo.url));
+      update.querySelector("#wp-update-log").addEventListener("click", () => handlers.openUpdate(SCRIPT_CHANGELOG_URL));
+      placeUpdate();
+    }
+
     // Every bubble shows once and then hides itself — it is a heads-up, not
     // something the user has to dismiss. The panel keeps the full detail.
     function renderToast() {
@@ -2942,7 +2956,6 @@
         noticeText: noticeText,
         noticeTone: noticeTone,
         forceSync: Boolean(settings.get().forceSync),
-        updateInfo,
         isHost: Boolean(room && room.role === "host"),
         panelOpen: Boolean(panel && panel.classList.contains("open"))
       });
@@ -2950,6 +2963,7 @@
       if (!view) {
         hideToast();
         toastShownKey = "";
+        placeUpdate();
         return;
       }
       if (view.key === toastShownKey) return; // it already had its moment
@@ -2975,6 +2989,7 @@
       // Settle the pill first, then stack the bubble above it.
       updatePill(handlers.getRoomState());
       placeToast();
+      placeUpdate();
       toastTimer = setTimeout(() => {
         toastTimer = null;
         if (toast) toast.classList.remove("show");
@@ -3010,9 +3025,8 @@
       updateInfo = info || null;
       if (!updateInfo) return;
       ensureMounted();
-      toastShownKey = "";
       setFabState(roomStore.inRoom() ? "in-room" : "idle");
-      renderToast();
+      renderUpdate();
     }
 
     function setFabState(kind) {
@@ -3053,7 +3067,7 @@
     function renderIdle() {
       const cfg = settings.get();
       body.innerHTML = `
-        <h4>一起看</h4>
+        <h4><span>一起看</span><span class="wp-h-actions"><button class="ghost" id="wp-settings">设置</button></span></h4>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
         <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="nickname" aria-describedby="wp-name-error"></div>
         <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
@@ -3082,6 +3096,7 @@
         if (e.target.value.trim()) validateName();
       });
       setTimeout(() => nameInput.focus(), 0);
+      body.querySelector("#wp-settings").addEventListener("click", openSettings);
       // Proof that the click actually reached the button. If the user reports
       // "clicking does nothing" and this never appears, something is covering the
       // panel (see the overlay probe in open()) — not a logic bug.
@@ -3229,7 +3244,7 @@
       body.innerHTML = `
         <h4>
           <span>房间</span> <span id="wp-code">${escapeHtml(room.roomId)}</span>
-          <span class="wp-h-actions"><button class="ghost" id="wp-copy">复制</button></span>
+          <span class="wp-h-actions"><button class="ghost" id="wp-copy">复制</button><button class="ghost" id="wp-settings">设置</button></span>
         </h4>
         <div class="wp-sub">${room.role === "host" ? "你是房主" : "参与者"} ·
           ${detected ? "已检测到播放器" : "未检测到播放器"}</div>
@@ -3248,16 +3263,6 @@
                 <span class="wp-hint">不再逐次询问</span></label>`
             : ""
         }
-        <div class="wp-field-label">面板显示方式</div>
-        <div class="wp-field-hint">决定面板的显示与收起方式，只影响界面，不影响同步。</div>
-        <div class="row">
-          <div class="wp-select">
-            <button type="button" class="wp-select-trigger" aria-haspopup="listbox"
-                    aria-expanded="false" aria-label="面板显示方式">
-              <span class="wp-select-value">安静模式</span><span class="wp-chev">▾</span>
-            </button>
-          </div>
-        </div>
         <button class="ghost" id="wp-leave">离开房间</button>
       `;
       const activateBtn = body.querySelector("#wp-activate");
@@ -3284,6 +3289,7 @@
           navigator.clipboard.writeText(room.roomId).then(done).catch(() => copyFallback(room.roomId));
         } else copyFallback(room.roomId);
       });
+      body.querySelector("#wp-settings").addEventListener("click", openSettings);
       const jumpBtn = body.querySelector("#wp-jump");
       if (jumpBtn) jumpBtn.addEventListener("click", () => handlers.jumpToHost());
       const followProgress = body.querySelector("#wp-follow-progress");
@@ -3311,22 +3317,64 @@
       }
       const skipWaitBtn = body.querySelector("#wp-skip-wait");
       if (skipWaitBtn) skipWaitBtn.addEventListener("click", () => handlers.skipWait());
-      // Only the trigger lives in the panel; the menu itself sits on #wp-root so
-      // the panel's overflow:hidden cannot clip it (see placeModeMenu).
+      body.querySelector("#wp-leave").addEventListener("click", () => handlers.leave());
+    }
+
+    function renderSettings() {
+      const cfg = settings.get();
+      body.innerHTML = `
+        <h4><button class="ghost wp-back" id="wp-settings-back" aria-label="返回">‹</button><span>设置</span></h4>
+        <label class="wp-toggle"><input type="checkbox" id="wp-show-ball" ${
+          cfg.showFloatingBall ? "checked" : ""
+        }><span class="wp-box"></span><span>始终展示悬浮球</span></label>
+        <div class="wp-field-hint">关闭后不会自动出现悬浮球，可在油猴菜单点击「开始一起看」手动打开。<a href="${escapeHtml(
+          SCRIPT_GUIDE_URL
+        )}#settings" target="_blank" rel="noopener">查看图示</a></div>
+        <div class="wp-field-label">展示模式</div>
+        <div class="row">
+          <div class="wp-select">
+            <button type="button" class="wp-select-trigger" aria-haspopup="listbox"
+                    aria-expanded="false" aria-label="展示模式">
+              <span class="wp-select-value">${MODE_NAMES[cfg.displayMode] || MODE_NAMES.quiet}</span><span class="wp-chev">▾</span>
+            </button>
+          </div>
+        </div>
+        <div class="wp-setting-row"><span>检查更新</span><button class="ghost" id="wp-check-update">检查</button></div>
+        <div class="wp-setting-row"><span>官网</span><button class="ghost" id="wp-open-site">打开</button></div>
+        <div class="wp-setting-row"><span>当前版本</span><span class="wp-version">v${escapeHtml(
+          versionChecker.current()
+        )}</span></div>
+      `;
+      body.querySelector("#wp-settings-back").addEventListener("click", closeSettings);
+      body.querySelector("#wp-show-ball").addEventListener("change", (event) => {
+        settings.update({ showFloatingBall: event.target.checked });
+      });
+      body.querySelector("#wp-open-site").addEventListener("click", () => handlers.openUpdate(SCRIPT_HOME_URL));
+      body.querySelector("#wp-check-update").addEventListener("click", async (event) => {
+        setBusy(event.currentTarget, "检查中…");
+        const found = await handlers.checkUpdate(true);
+        if (found) setUpdate(found);
+        else setNotice("当前已是最新版本");
+        if (body && body.contains(event.currentTarget)) {
+          event.currentTarget.disabled = false;
+          event.currentTarget.textContent = "检查";
+        }
+      });
       paintMode(cfg.displayMode);
-      body.querySelector(".wp-select-trigger").addEventListener("click", (e) => {
-        e.stopPropagation();
+      body.querySelector(".wp-select-trigger").addEventListener("click", (event) => {
+        event.stopPropagation();
         toggleModeMenu();
       });
-      body.querySelector("#wp-leave").addEventListener("click", () => handlers.leave());
     }
 
     function render() {
       if (!body) return;
-      if (roomStore.inRoom()) renderInRoom(handlers.getRoomState());
+      if (settingsOpen) renderSettings();
+      else if (roomStore.inRoom()) renderInRoom(handlers.getRoomState());
       else renderIdle();
       // body was rebuilt — keep an open menu re-anchored to its new trigger.
       placeModeMenu();
+      placeUpdate();
     }
 
     return {
@@ -3337,16 +3385,27 @@
       // Show the panel because the user is in a room (FAB visible, panel open).
       showForRoom() {
         ensureMounted();
+        settingsOpen = false;
         setFabState("in-room");
         open();
       },
+      showFloatingBall() {
+        ensureMounted();
+        settingsOpen = false;
+        setFabState(roomStore.inRoom() ? "in-room" : "idle");
+        updatePill(handlers.getRoomState());
+        renderUpdate();
+      },
       // Open the create/join panel on demand (e.g. from the userscript menu).
       open,
+      openSettings,
+      closeSettings,
       close,
       render,
       unmount,
       setNotice,
       setUpdate,
+      hasUpdate: () => Boolean(updateInfo),
       setConnectionState,
       setFabState,
       onRoomUpdate(roomState) {
@@ -3410,6 +3469,7 @@
       if (!url) return;
       window.open(url, "_blank", "noopener");
     },
+    checkUpdate: (force) => versionChecker.check(Boolean(force)),
     activate() {
       syncEngine.activate();
       panelUi.setNotice("已在当前标签同步");
@@ -3421,13 +3481,6 @@
       if (!host || !host.url) return;
       // The target page can only take over if the script runs there, so match its
       // domain for the user — they just asked to move the room to it.
-      let matchedNow = false;
-      try {
-        const targetHost = new URL(host.url).hostname;
-        if (targetHost && !siteMatch.isMatched(targetHost)) matchedNow = siteMatch.add(targetHost);
-      } catch {
-        /* unusual URL: just open it and let the user match manually */
-      }
       // Pause the current (unrelated) video, hand the job to the tab we are about
       // to open (it is the tab the user meant, so it takes over on load), then
       // open the shared video. This is the one automatic hand-off in the whole
@@ -3435,7 +3488,7 @@
       syncEngine.pauseLocal();
       syncEngine.releaseForHandoff(host.url);
       window.open(host.url, "_blank");
-      panelUi.setNotice(matchedNow ? "已在新标签打开，并自动匹配了该站点" : "已在新标签打开一起看的视频");
+      panelUi.setNotice("已在新标签打开一起看的视频");
     },
     // Each step of the flow logs, so a "click did nothing" report can be pinned
     // down: no log at all = the click never reached the button (something is
@@ -3506,7 +3559,8 @@
       // follow you into the next one.
       settings.update({ forceSync: false });
       // Leaving returns the page to a fully clean state (no FAB, no panel).
-      panelUi.unmount();
+      if (panelUi.hasUpdate()) panelUi.showFloatingBall();
+      else panelUi.unmount();
     },
     jumpToHost() {
       syncEngine.jumpToHost();
@@ -3544,16 +3598,18 @@
     panelUi.render();
   };
 
-  // Everything that touches the page or the network happens only on a matched
-  // site. It runs on load for matched domains, and can also be started on the
-  // fly right after the user matches the current domain from the menu.
+  // The script may run on any non-blocked page, but it only mounts UI or starts
+  // network work after finding a video or receiving an explicit menu action.
   let started = false;
-  function startMatchedSite() {
-    if (started) return;
-    started = true;
-    // One line that says exactly which build is running, where it is talking and
-    // how. Checking this in the console first tells us whether the browser is
-    // even running the copy we think it is.
+  let featureActive = false;
+  let videoProbeTimer = null;
+
+  function activateFeature(force, automatic) {
+    if (featureActive) return true;
+    const room = roomStore.get();
+    const hasVideo = syncEngine.detectVideo();
+    if (!room && !force && (!settings.get().showFloatingBall || !hasVideo)) return false;
+    featureActive = true;
     try {
       const version =
         (typeof GM_info !== "undefined" && GM_info.script && GM_info.script.version) || "dev";
@@ -3561,30 +3617,47 @@
     } catch {
       /* ignore */
     }
-
-    // Establish the connection now, so the user's first click does not pay for
-    // it. This runs before any room exists, so it stays completely silent.
     apiClient.warmup();
-    // Version checking is advisory and cached; it must never delay room startup
-    // or turn a blocked update endpoint into a sync error.
-    versionChecker.check().then((update) => {
+    versionChecker.check(false).then((update) => {
       if (update) panelUi.setUpdate(update);
     });
-
-    // Resume an existing room across reloads / SPA navigations. Whether this tab
-    // *syncs* is never decided here: it syncs only if it already was the chosen
-    // tab before the reload, or if the user just pressed 「跳转到一起看的视频」 and
-    // this is the page that opened. Otherwise it is a passive viewer showing the
-    // room, with the 「同步当前视频」 button waiting. When not in a room nothing is
-    // shown — the user opens the panel from the userscript menu.
-    if (roomStore.inRoom()) {
+    if (room) {
       panelUi.showForRoom();
       syncEngine.activateOnLoad();
+    } else {
+      panelUi.showFloatingBall();
+      if (automatic && !settings.get().floatingHintShown) {
+        settings.update({ floatingHintShown: true });
+        panelUi.setNotice("可在设置中关闭悬浮球~");
+      }
     }
-    registerMenuCommands();
+    return true;
   }
 
-  // Menu actions always surface their result as a bubble.
+  function watchForVideo() {
+    if (videoProbeTimer || !settings.get().showFloatingBall || siteMatch.isBlocked()) return;
+    let attempts = 0;
+    videoProbeTimer = setInterval(() => {
+      if (activateFeature(false, true) || ++attempts >= 30) {
+        clearInterval(videoProbeTimer);
+        videoProbeTimer = null;
+      }
+    }, 1000);
+  }
+
+  function startMatchedSite(options = {}) {
+    if (started) {
+      if (options.manual) {
+        activateFeature(true, false);
+        panelUi.open();
+      }
+      return;
+    }
+    started = true;
+    if (options.manual) activateFeature(true, false);
+    else if (!activateFeature(false, true)) watchForVideo();
+  }
+
   function notifyAndOpen(text) {
     panelUi.open();
     panelUi.setNotice(text);
@@ -3593,56 +3666,19 @@
   function registerMenuCommands() {
     if (typeof GM_registerMenuCommand !== "function") return;
     const host = siteMatch.currentHost();
-    const entry = siteMatch.matchEntry(host) || host;
-
-    GM_registerMenuCommand("打开一起看", () => panelUi.open());
-    GM_registerMenuCommand("离开房间", () => {
-      const room = roomStore.get();
-      if (room) apiClient.leaveRoom(room.roomId, room.participantId, room.hostToken).catch(() => {});
-      syncEngine.leaveRoom();
-      roomStore.clear();
-      settings.update({ forceSync: false });
-      panelUi.unmount();
+    GM_registerMenuCommand("开始一起看", () => {
+      startMatchedSite({ manual: true });
+      panelUi.open();
     });
-    GM_registerMenuCommand(`取消匹配当前域名（${host}）`, () => {
-      if (siteMatch.isBuiltin(entry) && !siteMatch.userSites().includes(entry)) {
-        notifyAndOpen(`「${entry}」是内置站点，不能取消`);
-        return;
-      }
-      notifyAndOpen(
-        siteMatch.remove(entry)
-          ? `已取消匹配 ${entry}，刷新页面后不再自动生效`
-          : `当前站点由「${entry}」匹配，请到该域名下取消`
-      );
-    });
-    GM_registerMenuCommand("查看已匹配域名", () => {
-      const { builtin, user } = siteMatch.listAll();
-      const parts = builtin.slice();
-      if (user.length) parts.push(...user.map((h) => `${h}（自建）`));
-      notifyAndOpen(`已匹配域名：${parts.join("、")}`);
+    GM_registerMenuCommand("屏蔽当前域名", () => {
+      const added = siteMatch.block(host);
+      if (added) {
+        panelUi.open();
+        panelUi.setNotice(`已屏蔽 ${host}，以后不会自动显示悬浮球`);
+      } else notifyAndOpen(`${host} 已经在屏蔽列表中`);
     });
   }
 
-  // A domain that is not matched yet gets exactly one thing: the command that
-  // matches it. Nothing else is registered, so the page stays untouched.
-  function registerMatchMenu() {
-    if (typeof GM_registerMenuCommand !== "function") return;
-    const host = siteMatch.currentHost();
-    GM_registerMenuCommand(`匹配当前域名（${host}）`, () => {
-      const added = siteMatch.add(host);
-      startMatchedSite();
-      notifyAndOpen(added ? `已匹配 ${host}，下次打开该域名会自动生效` : `${host} 已经匹配过了`);
-    });
-    const parent = siteMatch.parentCandidate();
-    if (parent) {
-      GM_registerMenuCommand(`匹配上级域名（${parent}，含所有子域）`, () => {
-        const added = siteMatch.add(parent);
-        startMatchedSite();
-        notifyAndOpen(added ? `已匹配 ${parent} 及其所有子域` : `${parent} 已经匹配过了`);
-      });
-    }
-  }
-
-  if (siteMatch.isMatched()) startMatchedSite();
-  else registerMatchMenu();
+  registerMenuCommands();
+  if (!siteMatch.isBlocked()) startMatchedSite();
 })();

@@ -62,39 +62,29 @@ userscript's `workerUrlRemote`.
    - `useLocalWorker`: `true` during local development, `false` in normal use.
 4. Save. Open a supported page (see the `@match` list at the top of the file).
 
-The script installs with `@match *://*/*` so sites can be added at runtime, but
-nothing happens on a domain until you match it (see §3). `localhost` and
-`127.0.0.1` are matched out of the box so the local fixtures work without any
-setup. When a site serves the player inside an iframe, the frame reporter
-handles it as long as the outer page's domain is matched (`@noframes false` is
+The script installs with `@match *://*/*` and stays quiet until it detects a
+video player or the user chooses the manual menu command. `localhost` and
+`127.0.0.1` work out of the box for local fixtures. When a site serves the
+player inside an iframe, the frame reporter handles it (`@noframes false` is
 *not* set).
 
 ## 3. Using it
 
-### Matching a site
+### Automatic activation
 
-Everything runs only on matched domains. An unmatched domain stays completely
-untouched — no button, no injected CSS, no requests, no timers.
+The script stays quiet until it detects a video player or the user explicitly
+chooses **Tampermonkey menu → 开始一起看**. A blocked domain stays quiet during
+automatic detection.
 
-- **Built in:** `bilibili.com`, `xifanapp.com`, `ciyuanapp.com`, `agedm.org`,
-  `*.agefans.*`, plus `localhost` / `127.0.0.1` for local testing.
-- **Add a site:** open the page, then **Tampermonkey menu → 匹配当前域名**. The
-  panel opens right away and the domain keeps working on every later visit —
-  no reload, no editing the script. When the host has a parent domain, a second
-  entry like **匹配上级域名（example.com，含所有子域）** is offered too.
-- **Remove a site:** **Tampermonkey menu → 取消匹配当前域名**. Built-in sites
-  cannot be removed.
-- **Review the list:** **Tampermonkey menu → 查看已匹配域名**.
-- Matching is exact-or-subdomain: matching `example.com` covers
-  `www.example.com`; matching `www.example.com` covers only that host.
-  Lookalikes such as `agedm.org.evil.com` never match.
+- Use **Tampermonkey menu → 屏蔽当前域名** when a site should never activate
+  automatically. **开始一起看** still works as a manual override.
 
 ### Day to day
 
-- By default the page is left completely untouched — there is **no floating
-  button or icon** until you start a session.
-- Open the **Tampermonkey menu → "Open Watch Party"** to bring up the panel.
-- **Create room** → you become the host; a 6-character room code is shown. Once
+- A video page shows the floating button automatically. A page without a video
+  remains untouched until you use the manual menu command.
+- Open **Tampermonkey menu → 开始一起看** to bring up the panel on any page.
+- **Create room** → you become the host; a 4-character room code is shown. Once
   you're in a room, the floating button appears (translucent until you hover)
   and stays until you leave.
 - A friend opens the panel the same way, clicks **Join**, enters the code, and
@@ -112,9 +102,7 @@ untouched — no button, no injected CSS, no requests, no timers.
   the panel (or its bubble) shows a **"跳转到一起看的视频"** button that opens the
   host's video in a new tab; the current tab hands the sync lock over and the new
   tab takes over as the reporting one.
-  - If that site has not been matched yet, the jump **matches its domain for you**
-    (otherwise the script would not run there at all and nothing could sync), and
-    the notice says so.
+  - The target page can run the script without a domain-matching step.
   - If the new page never takes over (failed load, …), the old tab reclaims the
     job from its standby watchdog after ~15s.
   - **Watching the same show on a different site?** The page URLs differ, so the
@@ -209,10 +197,9 @@ Then open:
 - `http://127.0.0.1:5500/fixtures/iframe-video.html` — same-origin iframe video.
 - `http://127.0.0.1:5500/fixtures/no-video.html` — player-not-detected case.
 
-`localhost` and `127.0.0.1` are matched out of the box, so these fixtures work
-with no setup. To exercise the "unmatched domain" path, serve the repo from
-another loopback alias (e.g. `http://127.0.0.2:5501/`) — it stays completely
-inert until you match it from the Tampermonkey menu.
+`localhost` and `127.0.0.1` work out of the box, so these fixtures need no setup.
+To exercise the blocked-domain path, use the Tampermonkey menu's
+「屏蔽当前域名」 command, then reload the page.
 
 ## 7. Migration path to a Chrome extension
 

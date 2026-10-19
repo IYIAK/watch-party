@@ -5,7 +5,7 @@
 // or image — so the published pages keep working on a network that blocks most
 // CDNs (only the tab links and the GitHub link leave the site).
 //
-// The {{VERSION}} / {{HOME_URL}} / {{GUIDE_URL}} / {{SCRIPT_URL}} placeholders
+// The {{VERSION}} / {{HOME_URL}} / {{GUIDE_URL}} / {{CHANGELOG_URL}} / {{SCRIPT_URL}} placeholders
 // are deliberately left in the returned string: site/build.mjs substitutes them
 // and fails the build if any `{{` survives into a generated file.
 
@@ -14,10 +14,11 @@ const escapeHtml = (s) =>
 
 const GITHUB_URL = "https://github.com/IYIAK/watch-party";
 
-// Shown as 〔首页｜安装教程｜GitHub〕; `activeTab` is "home" | "guide".
+// Shown as 〔首页｜安装教程｜更新日志｜GitHub〕.
 const TABS = [
   { id: "home", label: "首页", href: "{{HOME_URL}}" },
   { id: "guide", label: "安装教程", href: "{{GUIDE_URL}}" },
+  { id: "changelog", label: "更新日志", href: "{{CHANGELOG_URL}}" },
   { id: "github", label: "GitHub", href: GITHUB_URL },
 ];
 
@@ -91,18 +92,20 @@ const THEME_TOGGLE = `    <button class="theme" id="theme" type="button" aria-la
     </button>
 `;
 
-export function renderPage({ title, description, bodyHtml, activeTab }) {
-  const wantsInlineActions = String(bodyHtml).includes(ACTIONS_TOKEN);
+export function renderPage({ title, description, bodyHtml, activeTab, showActions = true }) {
+  const wantsInlineActions = showActions && String(bodyHtml).includes(ACTIONS_TOKEN);
   const actionsInner = wantsInlineActions
     ? ACTIONS_INNER
     : ACTIONS_INNER.replace("下方有完整安装引导。", '详细步骤见 <a href="{{GUIDE_URL}}">安装教程</a>。');
   // Above the body (default), or empty when the body places the row itself.
-  const actionRow = wantsInlineActions
+  const actionRow = !showActions
+    ? ""
+    : wantsInlineActions
     ? `  <div class="actions-inline" aria-label="安装">${actionsInner}
   </div>`
     : `  <section class="card install" aria-label="安装">${actionsInner}
   </section>`;
-  const actionsAbove = wantsInlineActions ? "" : `${actionRow}\n\n`;
+  const actionsAbove = !showActions || wantsInlineActions ? "" : `${actionRow}\n\n`;
   const body = wantsInlineActions
     ? String(bodyHtml).split(ACTIONS_TOKEN).join(actionRow)
     : bodyHtml;
@@ -707,6 +710,8 @@ ${THEME_BOOT}<title>${escapeHtml(title)}</title>
 .page-guide .note { color:var(--dim); }
 .page-guide footer { color:var(--faint); }
 .page-guide footer a { color:var(--dim); }
+.page-changelog .page { display:block; max-width:860px; margin:0 auto 34px; }
+.page-changelog article.doc { max-width:860px; }
 
 /* the reading grid: contents on the left, the text on the right.
    The contents column is bought with width, not taken from the prose — hence
@@ -786,7 +791,7 @@ article.doc th { background:rgba(255,255,255,.04); color:var(--ink); font-weight
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior:auto; } }
 </style>
 </head>
-<body class="page-${activeTab === "home" ? "home" : "guide"}">
+<body class="page-${activeTab === "home" ? "home" : "guide"}${activeTab === "changelog" ? " page-changelog" : ""}">
 <header class="bar">
   <div class="wrap">
     <span class="logo">▶ 一起看</span>

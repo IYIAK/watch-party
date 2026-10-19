@@ -12,6 +12,7 @@
 //   {{VERSION}}   the userscript's // @version
 //   {{HOME_URL}}  config.homeUrl
 //   {{GUIDE_URL}} config.guideUrl
+//   {{CHANGELOG_URL}} config.homeUrl + "/changelog/"
 //   {{SCRIPT_URL}} config.homeUrl + "/watch-party.user.js"
 //   {{API_HOST}}  config.apiHost   (only inside the published userscript copy)
 //
@@ -65,6 +66,7 @@ const replacements = {
   VERSION: "", // filled in once the userscript is read
   HOME_URL: homeUrl,
   GUIDE_URL: guideUrl,
+  CHANGELOG_URL: `${homeUrl}/changelog/`,
   SCRIPT_URL: `${homeUrl}/watch-party.user.js`,
   API_HOST: apiHost,
 };
@@ -300,6 +302,7 @@ if (usingRealConfig && bakedScript.includes(PLACEHOLDER_SITE)) {
 
 const doc = readFileSync(join(root, "docs", "安装教程.md"), "utf8").replace(/^\uFEFF/, "");
 const homeBody = readFileSync(join(here, "src", "home.html"), "utf8").replace(/^\uFEFF/, "");
+const changelogBody = readFileSync(join(here, "src", "changelog.html"), "utf8").replace(/^\uFEFF/, "");
 
 // ---------------------------------------------------------------------------
 // Pages
@@ -343,6 +346,16 @@ const pages = [
       description: "和朋友异地看同一个视频，进度自动对齐。约 10 分钟装好，不需要懂编程。",
       bodyHtml: guideBody,
       activeTab: "guide",
+    }),
+  },
+  {
+    file: join(outRoot, "home", "changelog", "index.html"),
+    html: renderPage({
+      title: "一起看 · 视频同步 —— 更新日志",
+      description: "一起看视频同步脚本的版本更新记录。",
+      bodyHtml: changelogBody,
+      activeTab: "changelog",
+      showActions: false,
     }),
   },
 ];
@@ -432,7 +445,8 @@ const scriptTargets = ["home", "guide"].map((dir) => {
 
 console.log(
   `site/dist: home/index.html (${(written[0].bytes / 1024).toFixed(1)} KB) + ` +
-    `guide/index.html (${(written[1].bytes / 1024).toFixed(1)} KB) + ` +
+  `guide/index.html (${(written[1].bytes / 1024).toFixed(1)} KB) + ` +
+  `home/changelog/index.html (${(written[2].bytes / 1024).toFixed(1)} KB) + ` +
     `2× watch-party.user.js v${version}` +
     (baked ? `（后端已注入 ${apiHost}）` : "（未找到 site/config.json，脚本里仍是占位地址）")
 );

@@ -138,7 +138,7 @@
       <article class="cell reveal">
         <span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M3 9h18"/></svg></span>
         <h3>一键跳转至相同视频</h3>
-        <p>点面板上的「跳转到一起看的视频」，自动在新标签打开房主的视频页并匹配该站点。</p>
+        <p>点面板上的「跳转到一起看的视频」，自动在新标签打开房主的视频页并开始同步。</p>
       </article>
       <article class="cell reveal">
         <span class="ico amber" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 7H6a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-3"/><path d="M13 4h7v7M20 4l-9 9"/></svg></span>
@@ -198,9 +198,9 @@
 
       <li class="reveal">
         <div class="step-copy">
-          <h3>在视频网站匹配域名</h3>
-          <p>点击浏览器右上角的油猴图标，选择「匹配当前域名」。匹配后脚本才会在该网站生效。</p>
-          <p class="note">若找不到油猴图标，可能收在右上角的拼图（扩展程序）图标里，点开即可看到。</p>
+          <h3>打开视频页，悬浮球自动出现</h3>
+          <p>安装脚本后打开具体的视频播放页，检测到播放器时右下角会自动显示悬浮球。</p>
+          <p class="note">第一次出现会提示「可在设置中关闭悬浮球~」。</p>
         </div>
         <div class="demo" aria-hidden="true">
           <div class="browser">
@@ -219,15 +219,15 @@
             </div>
             <div class="menu-row on">
               <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
-              <span>匹配当前域名（www.bilibili.com）</span>
+              <span>开始一起看</span>
             </div>
             <div class="menu-row">
               <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
-              <span>匹配上级域名（bilibili.com，含所有子域）</span>
+              <span>屏蔽当前域名</span>
             </div>
             <div class="menu-row">
               <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="2.6"/><path d="M8 1v2M8 13v2M1 8h2M13 8h2M3 3l1.5 1.5M11.5 11.5L13 13M13 3l-1.5 1.5M4.5 11.5L3 13"/></svg>
-              <span>查看已匹配域名</span>
+              <span>（油猴菜单）</span>
             </div>
             </div>
           </div>
@@ -236,9 +236,9 @@
 
       <li class="reveal">
         <div class="step-copy">
-          <h3>呼出面板</h3>
-          <p>需要时，点击浏览器右上角的油猴图标，在菜单里点「打开一起看」，面板即出现在页面上。</p>
-          <p class="note">未进入房间时，页面右下角不显示圆形按钮，需要通过这个菜单打开面板；进房间后点圆形按钮即可随时唤出。</p>
+          <h3>没有视频时也能手动打开</h3>
+          <p>要加入朋友的房间时，点击油猴菜单里的「开始一起看」，即使当前页面没有视频也会显示面板，加入后可以跳转到房主的视频。</p>
+          <p class="note">在面板的「设置」里可以关闭悬浮球、切换展示模式和检查更新。</p>
         </div>
         <div class="demo" aria-hidden="true">
           <div class="browser">
@@ -257,15 +257,15 @@
               </div>
               <div class="menu-row on">
                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>
-                <span>打开一起看</span>
+                <span>开始一起看</span>
               </div>
               <div class="menu-row">
                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v4M19 4l-8 8"/><path d="M5 14v5h5"/></svg>
-                <span>离开房间</span>
+                <span>屏蔽当前域名</span>
               </div>
               <div class="menu-row">
                 <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg>
-                <span>查看已匹配域名</span>
+                <span>（油猴菜单）</span>
               </div>
             </div>
           </div>
@@ -323,7 +323,7 @@
       </details>
       <details>
         <summary>右下角没有圆形按钮怎么办</summary>
-        <p>多数情况是尚未在该网站完成「匹配」（油猴菜单中点击「匹配当前域名」）；未进入房间时页面也不显示圆形按钮。</p>
+        <p>打开具体视频页并等待播放器被检测；如果是要加入房间，可直接从油猴菜单点击「开始一起看」，没有视频也能打开面板。</p>
       </details>
       <details>
         <summary>如何彻底移除</summary>
