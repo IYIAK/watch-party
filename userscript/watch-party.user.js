@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.13.1
+// @version      0.13.2
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
