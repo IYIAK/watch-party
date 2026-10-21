@@ -3204,7 +3204,7 @@
       // the pill would only show up as a blurry smudge behind the glass. A
       // bubble does not suppress it: the bubble stacks above it instead.
       const panelOpen = Boolean(panel && panel.classList.contains("open"));
-      if (mode !== "pill" || !roomStore.inRoom() || panelOpen) {
+      if ((mode !== "pill" && mode !== "pinned") || !roomStore.inRoom() || panelOpen) {
         pill.classList.remove("show");
         return;
       }
