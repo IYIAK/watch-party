@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.13.0
+// @version      0.13.1
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -2034,7 +2034,7 @@
       // A duplicated tab can inherit sessionStorage, including the tab id of
       // the current syncing page. Re-check identity before every manual
       // takeover so a quick click cannot make both copies report at once.
-      const reallyMine = await confirmTabIdentity(CONFIG.tabProbeMs);
+      const reallyMine = await syncOwner.confirmTabIdentity(CONFIG.tabProbeMs);
       if (!reallyMine) return false;
       syncOwner.claim(room.roomId);
       start();
@@ -2314,6 +2314,13 @@
         border-radius: 10px; }
       #wp-panel button.wp-icon-button svg { display: block; width: 14px; height: 14px; }
       #wp-panel .wp-sub { color: #5b6472; font-size: 11.5px; margin: 2px 0 12px; }
+      #wp-panel .wp-inline-notice { margin: 0 0 10px; padding: 8px 10px;
+        border: 1px solid rgba(43,108,255,.22); border-radius: 10px;
+        color: #2c4bbf; background: rgba(43,108,255,.07); font-size: 11.5px; }
+      #wp-panel .wp-inline-notice.tone-warn { color: #8a5a08;
+        border-color: rgba(217,119,6,.28); background: rgba(245,158,11,.12); }
+      #wp-panel .wp-inline-notice.tone-error { color: #b42318;
+        border-color: rgba(220,38,38,.30); background: #fff5f5; }
       #wp-panel .wp-idle-form { display: flex; flex-direction: column; gap: 10px; }
       #wp-panel .wp-idle-form .row { margin: 0; }
       #wp-panel .wp-idle-form .wp-input-error { margin: -5px 0 -2px; }
@@ -2977,6 +2984,10 @@
         });
       }
       for (const view of candidates) {
+        // Plain notices are rendered inside the open panel, where they stay
+        // beside the action that caused them instead of floating over the
+        // header when a tall panel reaches the top of the viewport.
+        if (input.panelOpen && !view.actions.length) continue;
         // With the panel open, every action bubble has the same buttons sitting
         // in the panel right above it (different-video / waiting / request bars),
         // so the bubble would just be a duplicate — and one that steals the click.
@@ -3153,9 +3164,11 @@
         noticeTimer = setTimeout(() => {
           noticeTimer = null;
           noticeText = "";
+          if (panel && panel.classList.contains("open")) render();
           renderToast();
         }, 4000);
       }
+      if (panel && panel.classList.contains("open")) render();
       renderToast();
     }
 
@@ -3208,6 +3221,12 @@
       btn.textContent = label;
     }
 
+    function inlineNoticeMarkup() {
+      if (!noticeText) return "";
+      const tone = noticeTone === "error" || noticeTone === "warn" ? noticeTone : "info";
+      return `<div class="wp-inline-notice tone-${tone}" role="status">${escapeHtml(noticeText)}</div>`;
+    }
+
     function renderIdle() {
       const cfg = settings.get();
       if (!displayNameDraft && cfg.displayName) displayNameDraft = cfg.displayName;
@@ -3219,6 +3238,7 @@
           </button></div>
         </div>
         <div class="wp-sub">创建房间或输入房间码，和朋友同步进度</div>
+        ${inlineNoticeMarkup()}
         <div class="wp-idle-form">
           <div class="row"><input id="wp-name" placeholder="你的昵称" value="${escapeHtml(displayNameDraft)}" maxlength="20" autocomplete="off" aria-describedby="wp-name-error"></div>
           <div id="wp-name-error" class="wp-input-error" role="alert" hidden>请输入昵称</div>
@@ -3409,6 +3429,7 @@
         </div>
         <div class="wp-sub">${room.role === "host" ? "你是房主" : "参与者"} ·
           ${detected ? "已检测到播放器" : "未检测到播放器"}</div>
+        ${inlineNoticeMarkup()}
         ${connectionBar}
         ${standbyBlock}
         ${waitBar}
