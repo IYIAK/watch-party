@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.9
+// @version      0.13.0
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -164,6 +164,7 @@
       forceSync: false, // member: follow the host even on a different video page
       showFloatingBall: true,
       floatingHintShown: false,
+      autoOpenHostVideo: true,
       blockedSites: []
     };
     let current = { ...defaults, ...storage.get(CONFIG.settingsKey, {}) };
@@ -807,6 +808,10 @@
     }
 
     let tabId = "";
+    // A duplicated tab copies sessionStorage and therefore copies tabId, but it
+    // cannot copy this in-memory instance token. The owner record uses both so a
+    // duplicate can never silently become a second syncing tab.
+    const instanceId = newId();
     try {
       tabId = sessionStorage.getItem(TAB_KEY) || "";
     } catch {
@@ -843,8 +848,11 @@
             // Only a settled, still-loaded tab may answer: one that is itself still
             // asking has not taken this id for real, and one that is unloading would
             // make its own reload look like a duplicate.
-            if (settled && !leaving) channel.postMessage({ type: "have", tabId });
-          } else if (msg.type === "have" && onDuplicate) {
+            const room = roomStore.get();
+            if ((settled || ownsRecordedInstance(room && room.roomId)) && !leaving) {
+              channel.postMessage({ type: "have", tabId, instanceId });
+            }
+          } else if (msg.type === "have" && msg.instanceId !== instanceId && onDuplicate) {
             onDuplicate();
           }
         });
@@ -914,7 +922,16 @@
       return rec.ownerTabId || null;
     }
     function isOwner(roomId) {
-      return Boolean(roomId) && ownerOf(roomId) === tabId;
+      const rec = read();
+      if (!roomId || !rec || rec.roomId !== roomId || rec.ownerTabId !== tabId) return false;
+      // The stable tab id lets a reload re-confirm ownership. The in-memory
+      // instance check below is used for heartbeats and release operations.
+      return true;
+    }
+    function ownsRecordedInstance(roomId) {
+      const rec = read();
+      if (!roomId || !rec || rec.roomId !== roomId || rec.ownerTabId !== tabId) return false;
+      return !rec.ownerInstanceId || rec.ownerInstanceId === instanceId;
     }
 
     // Stamp the record so other tabs can tell "the owner is still around" from
@@ -925,7 +942,7 @@
       const bump = () => {
         const rec = read();
         // Only our own record: another tab may have taken over meanwhile.
-        if (!rec || rec.roomId !== roomId || rec.ownerTabId !== tabId) {
+        if (!rec || rec.roomId !== roomId || !ownsRecordedInstance(roomId)) {
           stopHeartbeat();
           return;
         }
@@ -954,13 +971,13 @@
       // Explicit takeover: from now on this tab reports, and every other tab
       // (any origin) sees it and stands down.
       claim(roomId) {
-        write({ roomId, ownerTabId: tabId, epoch: newEpoch(), at: Date.now() });
+        write({ roomId, ownerTabId: tabId, ownerInstanceId: instanceId, epoch: newEpoch(), at: Date.now() });
         startHeartbeat(roomId);
       },
       // Give the job up. The room id stays in the record so latecomers can tell
       // "nobody is syncing this room" from "this is somebody else's room".
       release(roomId) {
-        if (roomId && ownerOf(roomId) === tabId) {
+        if (roomId && ownsRecordedInstance(roomId)) {
           write({ roomId, ownerTabId: null, at: Date.now() });
         }
         stopHeartbeat();
@@ -1324,6 +1341,7 @@
     let lastReportSig = "";
     let mismatchHost = null; // host state when local video differs, else null
     let mismatchVotes = { same: 0, diff: 0 }; // hysteresis for the mismatch verdict
+    let lastHostVideoSig = "";
     // Co-op state: a member's pending "jump us here" ask, the requests the host
     // already answered, who the room is currently waiting for, and the host's
     // "stop waiting" override.
@@ -1341,6 +1359,7 @@
     let onUpdate = () => {};
     let onError = () => {};
     let onMismatch = () => {};
+    let onHostVideoChange = () => {};
     let onSeekRequest = () => {};
     let onNotice = () => {};
     let visibilityHandler = null;
@@ -1641,6 +1660,24 @@
         : Date.now() - new Date(host.updatedAt).getTime() < CONFIG.hostOfflineMs;
       if (!hostFresh) {
         onError("host-offline");
+        return;
+      }
+
+      const hostVideoSig = String(host.state.videoKey || host.state.url || "");
+      const hostVideoChanged = Boolean(lastHostVideoSig && hostVideoSig && lastHostVideoSig !== hostVideoSig);
+      lastHostVideoSig = hostVideoSig;
+      if (
+        hostVideoChanged &&
+        cfg.autoOpenHostVideo &&
+        !cfg.forceSync &&
+        host.state.url &&
+        document.visibilityState === "visible"
+      ) {
+        // Use the current tab for an automatic handoff. Browsers often block a
+        // timer-driven window.open, while location.assign is reliable; the old
+        // video is paused before navigation and the handoff token lets this tab
+        // resume syncing after the new page loads.
+        onHostVideoChange(host.state);
         return;
       }
 
@@ -1991,12 +2028,18 @@
     // The user explicitly asked *this* tab to be the one that syncs (the panel's
     // 「同步当前视频」 button, or creating a room). Recording it in shared storage
     // is what makes every other tab — on any site — stand down.
-    function activate() {
+    async function activate() {
       const room = roomStore.get();
-      if (!room) return;
+      if (!room) return false;
+      // A duplicated tab can inherit sessionStorage, including the tab id of
+      // the current syncing page. Re-check identity before every manual
+      // takeover so a quick click cannot make both copies report at once.
+      const reallyMine = await confirmTabIdentity(CONFIG.tabProbeMs);
+      if (!reallyMine) return false;
       syncOwner.claim(room.roomId);
       start();
       onUpdate(lastRoomState);
+      return true;
     }
 
     // On load we report only if this same tab was the syncing one before the
@@ -2052,6 +2095,7 @@
       announcedRequestId = "";
       handledRequestIds = new Set();
       waitingFor = null;
+      lastHostVideoSig = "";
     }
 
     function deactivate() {
@@ -2169,6 +2213,9 @@
       },
       set onMismatch(fn) {
         onMismatch = fn;
+      },
+      set onHostVideoChange(fn) {
+        onHostVideoChange = fn;
       },
       set onSeekRequest(fn) {
         onSeekRequest = fn;
@@ -3163,6 +3210,7 @@
 
     function renderIdle() {
       const cfg = settings.get();
+      if (!displayNameDraft && cfg.displayName) displayNameDraft = cfg.displayName;
       body.innerHTML = `
         <div class="wp-panel-head">
           <div class="wp-panel-title">一起看</div>
@@ -3345,6 +3393,12 @@
         <label class="wp-toggle"><input type="checkbox" id="wp-follow-pp" ${
           cfg.followPlayPause ? "checked" : ""
         }><span class="wp-box"></span><span>跟随房主播放/暂停</span></label>`;
+      const autoOpenToggle = room.role === "host"
+        ? ""
+        : `<label class="wp-toggle"><input type="checkbox" id="wp-auto-open-host" ${
+            cfg.autoOpenHostVideo ? "checked" : ""
+          }><span class="wp-box"></span><span>自动打开房主视频</span>
+            <span class="wp-hint">房主切换时</span></label>`;
 
       body.innerHTML = `
         <div class="wp-panel-head">
@@ -3362,6 +3416,7 @@
         <div id="wp-list">${list || '<div class="wp-empty">暂无参与者</div>'}</div>
         ${mismatchBar}
         ${followerControls}
+        ${autoOpenToggle}
         ${
           room.role === "host"
             ? `<label class="wp-toggle"><input type="checkbox" id="wp-auto-accept" ${
@@ -3406,6 +3461,10 @@
       const followPlayPause = body.querySelector("#wp-follow-pp");
       if (followPlayPause) followPlayPause.addEventListener("change", (e) =>
         settings.update({ followPlayPause: e.target.checked })
+      );
+      const autoOpenHost = body.querySelector("#wp-auto-open-host");
+      if (autoOpenHost) autoOpenHost.addEventListener("change", (e) =>
+        settings.update({ autoOpenHostVideo: e.target.checked })
       );
       const autoAcceptBox = body.querySelector("#wp-auto-accept");
       if (autoAcceptBox) {
@@ -3630,6 +3689,7 @@
     ownerLooksAbandoned: () => syncEngine.ownerLooksAbandoned(),
     ownerTabId: () => syncEngine.ownerTabId(),
     getMismatchHost: () => syncEngine.getMismatchHost(),
+    onHostVideoChange: (state) => handlers.jumpToHostVideo(state),
     getSeekRequest: () => syncEngine.getSeekRequest(),
     acceptSeekRequest: (id) => syncEngine.acceptSeekRequest(id),
     ignoreSeekRequest: (id) => syncEngine.ignoreSeekRequest(id),
@@ -3641,14 +3701,19 @@
       window.open(url, "_blank", "noopener");
     },
     checkUpdate: (force) => versionChecker.check(Boolean(force)),
-    activate() {
-      syncEngine.activate();
+    async activate() {
+      const activated = await syncEngine.activate();
+      if (!activated) {
+        panelUi.setNotice("当前标签页是重复打开的页面，请使用原同步标签页", false, "warn", true);
+        panelUi.render();
+        return;
+      }
       panelUi.setNotice("已在当前标签同步");
       panelUi.render();
       panelUi.setFabState("in-room");
     },
-    jumpToHostVideo() {
-      const host = syncEngine.getMismatchHost();
+    jumpToHostVideo(targetState = null) {
+      const host = targetState || syncEngine.getMismatchHost();
       if (!host || !host.url) return;
       // The target page can only take over if the script runs there, so match its
       // domain for the user — they just asked to move the room to it.
@@ -3658,8 +3723,13 @@
       // design, and it is one-shot: a plain new tab never matches it.
       syncEngine.pauseLocal();
       syncEngine.releaseForHandoff(host.url);
-      window.open(host.url, "_blank");
-      panelUi.setNotice("已在新标签打开一起看的视频");
+      if (targetState) {
+        panelUi.setNotice("房主已切换视频，正在打开新视频");
+        window.location.assign(host.url);
+      } else {
+        window.open(host.url, "_blank");
+        panelUi.setNotice("已在新标签打开一起看的视频");
+      }
     },
     // Each step of the flow logs, so a "click did nothing" report can be pinned
     // down: no log at all = the click never reached the button (something is
@@ -3681,7 +3751,7 @@
         console.info("[一起看] 创建房间：3/4 已保存房间", roomStore.get());
         // Creating a room *is* an explicit "I want to sync here" — the host is the
         // timeline. Joining is not: see join() below.
-        syncEngine.activate();
+        await syncEngine.activate();
         panelUi.setNotice("");
         panelUi.showForRoom();
         console.info("[一起看] 创建房间：4/4 完成，房间码", res.roomId);
