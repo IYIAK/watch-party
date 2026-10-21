@@ -27,6 +27,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const outRoot = join(here, "dist");
 
+// The userscript metadata points at this same official play-mark icon. Keep a
+// real SVG asset beside both published script copies so managers can load it.
+const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><rect width="64" height="64" rx="14" fill="#2b6cff"/><path d="M25 18l24 14-24 14z" fill="#fff"/></svg>`;
+
 // Assembled from parts so this file never *contains* the banned string, which
 // lets the scan below include itself instead of being exempted from it.
 const FORBIDDEN = ["sc", "ene", "ee"].join("");
@@ -432,6 +436,11 @@ const scriptTargets = ["home", "guide"].map((dir) => {
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, script);
   return { rel: `${dir}/watch-party.user.js`, file };
+});
+const faviconTargets = ["home", "guide"].map((dir) => {
+  const file = join(outRoot, dir, "favicon.svg");
+  writeFileSync(file, FAVICON_SVG);
+  return { rel: `${dir}/favicon.svg`, file };
 });
 {
   // Read back exactly what landed on disk: no leftover `{{`, and the two

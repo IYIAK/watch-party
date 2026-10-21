@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         一起看 · 视频同步
 // @namespace    https://github.com/IYIAK/watch-party
-// @version      0.12.8
+// @version      0.12.9
 // @description  安静地和朋友同步播放进度，并可选择跟随房主。
 // @author       IYIAK
 // @match        *://*/*
@@ -15,6 +15,7 @@
 // @connect      your-worker.example.workers.dev
 // @connect      your-site.example.com
 // @connect      127.0.0.1
+// @icon         {{HOME_URL}}/favicon.svg
 // Where a manager should look for updates: the site that publishes this script
 // (the build replaces this placeholder with the real host, so the repository
 // never carries the deployment address). Bump @version on every published change
@@ -3846,14 +3847,11 @@
   function registerMenuCommands() {
     if (typeof GM_registerMenuCommand !== "function") return;
     const host = siteMatch.currentHost();
-    // Use Unicode symbols in the command labels instead of relying on the
-    // optional icon argument: Tampermonkey, Violentmonkey and Greasemonkey do
-    // not expose the same menu-command icon API.
-    GM_registerMenuCommand("▶ 开始一起看", () => {
+    GM_registerMenuCommand("开始一起看", () => {
       startMatchedSite({ manual: true });
       panelUi.open();
     });
-    GM_registerMenuCommand("⊘ 屏蔽当前域名", () => {
+    GM_registerMenuCommand("屏蔽当前域名", () => {
       const added = siteMatch.block(host);
       if (added) {
         panelUi.open();
